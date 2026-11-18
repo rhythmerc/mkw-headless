@@ -27,7 +27,7 @@ fn render(model: &engine_core::Model, pose: &Pose, eye: Vec3, at: Vec3, path: &s
                 let j = pose.root * pose.joints.get(usize::from(mesh.joints[i][0])).copied().unwrap_or(Mat4::IDENTITY);
                 let p = j.transform_point3(Vec3::from_array(mesh.positions[i]));
                 let n = j.transform_vector3(Vec3::from_array(mesh.normals[i])).normalize_or_zero();
-                let c = mesh.colors.get(i).copied().filter(|_| mesh.material.vertex_color).unwrap_or([1.0; 4]);
+                let c = mesh.colors.get(i).copied().filter(|_| mesh.material.vertex_color && std::env::var_os("NO_VC").is_none()).unwrap_or([1.0; 4]);
                 (proj * view * p.extend(1.0), n, mesh.uvs[i], c)
             })
             .collect();
@@ -79,7 +79,7 @@ fn render(model: &engine_core::Model, pose: &Pose, eye: Vec3, at: Vec3, path: &s
                     }
                     let base = mesh.material.base_color;
                     let n = (v[0].1 * k[0] + v[1].1 * k[1] + v[2].1 * k[2]).normalize_or_zero();
-                    let lit = 0.35 + 0.65 * n.dot(light).max(0.0);
+                    let lit = if std::env::var_os("NO_LIGHT").is_some() { 1.0 } else { 0.35 + 0.65 * n.dot(light).max(0.0) };
                     for ch in 0..3 {
                         let vc = mix(&|i| v[i].3[ch]);
                         c[ch] *= srgb_to_linear(base[ch]) * vc * lit;

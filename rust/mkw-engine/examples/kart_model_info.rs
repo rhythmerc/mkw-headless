@@ -20,6 +20,15 @@ fn main() {
                 }
                 println!("    mesh {} pos {} uv {:?} clr {:?} mprims {} prims {} current_matrix {}", m.name, m.pos_buffer, m.uv_buffer, m.clr_buffer, m.mprims.len(), prims, m.current_matrix);
             }
+            for c in &model.colors {
+                let mut chans: Vec<std::collections::BTreeSet<u8>> = vec![Default::default(); 4];
+                for v in &c.data { for k in 0..4 { chans[k].insert(v[k]); } }
+                println!("    colours {}: {} entries; distinct per channel {:?}; r {:?}..{:?} a {:?}..{:?} q_comp {} q_type {}", c.name, c.data.len(), chans.iter().map(|s| s.len()).collect::<Vec<_>>(), chans[0].first(), chans[0].last(), chans[3].first(), chans[3].last(), c.q_comp, c.q_type);
+            }
+            for m in &model.materials {
+                println!("    material {} chan controls {:?}", m.name, m.colorChanControls.iter().map(|c| (c.enabled, format!("{:?}", c.Material), format!("{:?}", c.Ambient))).collect::<Vec<_>>());
+                for (i, st) in m.mStages.iter().enumerate() { println!("      stage {i}: {:?}", st); }
+            }
             for t in &model.texcoords {
                 let (lo, hi) = t.data.iter().fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), v| ([lo[0].min(v[0]), lo[1].min(v[1])], [hi[0].max(v[0]), hi[1].max(v[1])]));
                 println!("    uvs {}: {} from {:.2?} to {:.2?}", t.name, t.data.len(), lo, hi);

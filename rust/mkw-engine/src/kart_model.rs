@@ -81,7 +81,7 @@ pub fn build(files: &BTreeMap<String, Vec<u8>>) -> Result<KartModel, String> {
             };
             for _ in 0..times {
                 let joint = joints;
-                for mesh in model_meshes(model, &archive, joint, &mut textures, &mut texture_ids)? {
+                for mesh in model_meshes(model, &archive, bytes, joint, &mut textures, &mut texture_ids)? {
                     meshes.push(mesh);
                 }
                 instances.push(Instance { file: file.to_string(), model: model.name.clone(), nodes: model.bones.len(), joint });
@@ -172,6 +172,7 @@ const TEX0: usize = 13;
 fn model_meshes(
     model: &brres::Model,
     archive: &brres::Archive,
+    bytes: &[u8],
     joint: u16,
     textures: &mut Vec<Rgba8>,
     texture_ids: &mut HashMap<String, u32>,
@@ -199,8 +200,8 @@ fn model_meshes(
             model.texcoords.iter().find(|b| &b.name == n).or_else(|| n.strip_prefix('#').and_then(|i| i.parse::<usize>().ok()).and_then(|i| model.texcoords.get(i)))
         });
         let material = material_of.get(&(poly as u32)).and_then(|&m| model.materials.get(m as usize));
-        // (a colour buffer with only its first channel: a shade, the game's shading reads as one value - grey)
-        let shade_only = colors.is_some_and(|c| c.data.iter().all(|v| v[1] == 0 && v[2] == 0 && v[3] == 0));
+        // (the colours as the file has them: the crate reads a colour a byte)
+        let colors = colors.and_then(|c| raw_colors(bytes, &c.name));
         let mut data = MeshData::default();
         let mut seen: HashMap<[u16; 5], u16> = HashMap::new();
         let mut corners: Vec<u16> = Vec::new();
@@ -233,10 +234,10 @@ fn model_meshes(
                             data.positions.push(*positions.data.get(usize::from(key[1])).ok_or("position index")?);
                             data.normals.push(normals.and_then(|n| n.data.get(usize::from(key[2])).copied()).unwrap_or([0.0, 1.0, 0.0]));
                             data.uvs.push(uvs.and_then(|u| u.data.get(usize::from(key[4])).copied()).unwrap_or([0.0, 0.0]));
-                            if let Some(c) = colors {
-                                let c = c.data.get(usize::from(key[3])).copied().unwrap_or([255; 4]);
-                                let c = if shade_only { [c[0], c[0], c[0], 255] } else { c };
-                                data.colors.push([srgb(c[0]), srgb(c[1]), srgb(c[2]), f32::from(c[3]) / 255.0]);
+                            if let Some(c) = colors.as_ref() {
+                                let c = c.get(usize::from(key[3])).copied().unwrap_or([255; 4]);
+                                // (their alpha: how strongly the game's shading adds its highlights, not coverage - opaque)
+                                data.colors.push([srgb(c[0]), srgb(c[1]), srgb(c[2]), 1.0]);
                             }
                             data.joints.push([joint + bone_of(draw), 0, 0, 0]);
                             data.weights.push([1.0, 0.0, 0.0, 0.0]);
@@ -322,6 +323,56 @@ fn triangles(kind: u8, v: &[u16], out: &mut Vec<u16>) {
         // (lines and points: not drawn)
         _ => {}
     }
+}
+
+/// A model's vertex colours named `name`, read from its file's bytes: the colour array whose header names it (its size,
+/// its offsets back to the model, to its data and to its name, its index, RGB or RGBA, its format, its stride and its
+/// count), decoded from whichever of GX's colour formats it is.
+fn raw_colors(bytes: &[u8], name: &str) -> Option<Vec<[u8; 4]>> {
+    let be32 = |at: usize| bytes.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    (0..bytes.len().saturating_sub(0x20)).step_by(4).find_map(|at| {
+        let (size, back, data, name_at) = (be32(at)? as i32, be32(at + 4)? as i32, be32(at + 8)? as i32, be32(at + 12)? as i32);
+        let (format, stride) = (be32(at + 0x18)?, usize::from(bytes[at + 0x1C]));
+        let count = usize::from(u16::from_be_bytes([bytes[at + 0x1E], bytes[at + 0x1F]]));
+        if back >= 0 || data <= 0 || data >= size || format > 5 || !(2..=4).contains(&stride) || size < (count * stride) as i32 {
+            return None;
+        }
+        let start = at.checked_add_signed(name_at as isize)?;
+        let end = start + bytes.get(start..)?.iter().take(128).position(|&b| b == 0)?;
+        if &bytes[start..end] != name.as_bytes() {
+            return None;
+        }
+        let data = bytes.get(at + data as usize..at + data as usize + count * stride)?;
+        Some(
+            data.chunks_exact(stride)
+                .map(|c| {
+                    let x4 = |v: u16| (v * 17) as u8;
+                    let x6 = |v: u32| ((v * 255 + 31) / 63) as u8;
+                    let x5 = |v: u16| ((u32::from(v) * 255 + 15) / 31) as u8;
+                    match format {
+                        // (RGB565)
+                        0 => {
+                            let v = u16::from_be_bytes([c[0], c[1]]);
+                            [x5(v >> 11), ((u32::from(v >> 5 & 63) * 255 + 31) / 63) as u8, x5(v & 31), 255]
+                        }
+                        // (RGB8, RGBX8)
+                        1 | 2 => [c[0], c[1], c[2], 255],
+                        // (RGBA4)
+                        3 => {
+                            let v = u16::from_be_bytes([c[0], c[1]]);
+                            [x4(v >> 12), x4(v >> 8 & 15), x4(v >> 4 & 15), x4(v & 15)]
+                        }
+                        // (RGBA6)
+                        4 => {
+                            let v = u32::from(c[0]) << 16 | u32::from(c[1]) << 8 | u32::from(c[2]);
+                            [x6(v >> 18), x6(v >> 12 & 63), x6(v >> 6 & 63), x6(v & 63)]
+                        }
+                        _ => [c[0], c[1], c[2], c[3]],
+                    }
+                })
+                .collect(),
+        )
+    })
 }
 
 /// An image with its mirror image after it, across (`u`) and down (`v`): repeating it is mirroring the original.
@@ -593,6 +644,11 @@ mod tests {
         }
         eprintln!("Mario at rest: from {lo} to {hi}");
         assert!(hi.y - lo.y > 90.0 && hi.y - lo.y < 160.0 && lo.y > -20.0, "Mario stands up: {lo} to {hi}");
+        // (the vertex colours as the file has them: Mario's first array's first colours are greys)
+        let mario = &files["driver_model.brres"];
+        let colours = raw_colors(mario, "mario_body__mario_all_tx").expect("Mario's colours");
+        assert_eq!(colours.len(), 139);
+        assert_eq!(colours[..2], [[0x49; 4], [0xC5; 4]]);
         // (and wound with the normals: most triangles face the way their corners' normals do)
         for m in meshes {
             let agree = m.indices.chunks(3).filter(|t| {
