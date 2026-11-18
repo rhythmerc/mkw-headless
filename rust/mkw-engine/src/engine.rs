@@ -19,8 +19,8 @@ use std::time::Duration;
 /// Its one model, the kart.
 pub const KART: engine_core::ModelId = 0;
 
-/// The kart's height drawn (metres), and how far its position is over the ground (game units).
-const KART_HEIGHT: f32 = 1.0;
+/// The kart's height drawn, Mario on it, and how far its position is over the ground (game units).
+const KART_HEIGHT: f32 = 150.0;
 const KART_RIDE: f32 = 26.7;
 
 /// The game made on the runtime's worker: the library at `library` (built from the player's disc), the extracted disc
@@ -257,7 +257,7 @@ impl EngineCore for Mkwii {
             feet: frame.w_axis.truncate() - up * (KART_RIDE / UNITS),
             up,
             forward: frame.z_axis.truncate().normalize_or(Vec3::NEG_Z),
-            height: KART_HEIGHT,
+            height: KART_HEIGHT / UNITS,
         })
     }
 

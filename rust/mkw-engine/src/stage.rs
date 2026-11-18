@@ -3,13 +3,15 @@
 //! The race is a solo time trial on Luigi Circuit, its course swapped for the stage (the game's start stays where the
 //! course has it):
 //! the stage is laid so the place the player is put down is at the course's start, facing the way the race starts
-//! (the game's -z), its floor (y = 0) under the start. A game unit is a hundredth of a metre (the karts' size).
+//! (the game's -z), its floor (y = 0) under the start, the room [`UNITS`] game units a metre (toy-sized karts).
 use crate::kcl::{self, Triangle};
 use engine_core::Stage;
 use engine_core::glam::{Mat4, Quat, Vec3};
 
-/// Game units a metre.
-pub const UNITS: f32 = 100.0;
+/// Game units a metre: the kart toy-sized in the room (about 31 cm long, Mario about 19 cm tall; the game's own scale
+/// is about 100 units a metre). The stage is laid in the game this much larger, so the kart drives as it does on a
+/// course, a room its size to it.
+pub const UNITS: f32 = 800.0;
 
 /// Where the race (a solo time trial on Luigi Circuit) puts the kart, at the floor the stage is laid on: the kart
 /// rests 26.7 units over it (measured: (-20115, 426.7, 25750) on a floor at 400).
@@ -99,7 +101,7 @@ mod tests {
         let space = Space::new(Vec3::new(2.0, 0.7, -1.0), Vec3::X);
         assert!((space.to_game(Vec3::new(2.0, 0.0, -1.0)) - START).length() < 1e-3, "the place, on the floor, at the start");
         let ahead = space.to_game(Vec3::new(3.0, 0.0, -1.0)) - START;
-        assert!((ahead - Vec3::new(0.0, 0.0, -UNITS)).length() < 1e-2, "a metre ahead: 100 units along -z, {ahead}");
+        assert!((ahead - Vec3::new(0.0, 0.0, -UNITS)).length() < 1e-2, "a metre ahead: UNITS along -z, {ahead}");
         let p = Vec3::new(0.5, 1.2, 3.0);
         assert!((space.from_game(space.to_game(p)) - p).length() < 1e-4);
         let m = Mat4::from_translation(space.to_game(p));
@@ -107,7 +109,7 @@ mod tests {
         // (laid under a kart somewhere else, facing +x in the game)
         let under = Space::at(Vec3::new(1.0, 0.0, 1.0), Vec3::Z, Vec3::new(500.0, 30.0, -200.0), Vec3::X);
         assert!((under.to_game(Vec3::new(1.0, 0.0, 1.0)) - Vec3::new(500.0, 30.0, -200.0)).length() < 1e-3);
-        assert!((under.to_game(Vec3::new(1.0, 0.0, 2.0)) - Vec3::new(600.0, 30.0, -200.0)).length() < 1e-2, "forward is the game's +x");
+        assert!((under.to_game(Vec3::new(1.0, 0.0, 2.0)) - Vec3::new(500.0 + UNITS, 30.0, -200.0)).length() < 1e-2, "forward is the game's +x");
     }
 
     #[test]
