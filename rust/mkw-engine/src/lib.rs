@@ -12,6 +12,7 @@ pub mod kcl;
 pub mod native;
 pub mod stage;
 pub mod szs;
+pub mod sound;
 pub mod kart_model;
 
 /// The game files: the player's extracted disc (`files/` and `sys/`) with the game library built from it.

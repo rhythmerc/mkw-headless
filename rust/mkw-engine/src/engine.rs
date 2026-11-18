@@ -58,6 +58,8 @@ pub struct Mkwii {
 
 impl Mkwii {
     fn new(game: Game, disc: PathBuf, data: PathBuf, look: Option<KartModel>) -> Self {
+        // (only the kart and its driver heard: `crate::sound`)
+        game.mute_sound_players(crate::sound::MUTED);
         let model = Some(look.as_ref().map_or_else(stand_in, |l| l.model.clone()));
         Self {
             game,
@@ -259,6 +261,12 @@ impl EngineCore for Mkwii {
             forward: frame.z_axis.truncate().normalize_or(Vec3::NEG_Z),
             height: KART_HEIGHT / UNITS,
         })
+    }
+
+    /// The game's sound (the kart's and its driver's), played from the kart.
+    fn stream(&mut self) -> Option<engine_core::audio::StreamFactory> {
+        let tap = self.game.audio();
+        Some(Box::new(move || Ok(Box::new(crate::sound::Mix::new(tap)) as Box<dyn engine_core::audio::Stream>)))
     }
 
     fn models(&mut self) -> Vec<Model> {

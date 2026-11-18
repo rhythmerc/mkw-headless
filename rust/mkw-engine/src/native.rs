@@ -48,6 +48,21 @@ type Step = unsafe extern "C" fn(*const Pad) -> c_int;
 type GetKart = unsafe extern "C" fn(*mut Kart) -> c_int;
 type SetCourseKcl = unsafe extern "C" fn(*const u8, u32);
 type Read = unsafe extern "C" fn(u32, *mut u8, u32) -> c_int;
+type TakeAudio = unsafe extern "C" fn(*mut i16, u32) -> u32;
+type MuteSoundPlayers = unsafe extern "C" fn(u32);
+
+/// Where the game's sound is taken from (`mkw_audio`): a function of the library, callable from any thread (the
+/// library keeps the mix behind a lock), so it goes to the runtime's sound thread.
+#[derive(Clone, Copy)]
+pub struct AudioTap(TakeAudio);
+
+impl AudioTap {
+    /// Up to `out.len() / 2` frames of the game's mix (32 kHz, left and right interleaved): the frames given.
+    pub fn take(&self, out: &mut [i16]) -> usize {
+        // SAFETY: the library writes at most the frames asked for, two samples each.
+        unsafe { (self.0)(out.as_mut_ptr(), (out.len() / 2) as u32) as usize }
+    }
+}
 
 /// The loaded game. One a process: the game keeps its state in the library's globals, and the library stays loaded
 /// when this goes (its threads still run in it).
@@ -58,6 +73,8 @@ pub struct Game {
     kart: GetKart,
     set_course_kcl: SetCourseKcl,
     read: Read,
+    take_audio: TakeAudio,
+    mute_sound_players: MuteSoundPlayers,
     // (never unloaded: the game's threads run in it until the process ends)
     _library: std::mem::ManuallyDrop<libloading::Library>,
 }
@@ -82,6 +99,8 @@ impl Game {
                 kart: std::mem::transmute::<*const (), GetKart>(get(b"mkw_kart\0")?),
                 set_course_kcl: std::mem::transmute::<*const (), SetCourseKcl>(get(b"mkw_set_course_kcl\0")?),
                 read: std::mem::transmute::<*const (), Read>(get(b"mkw_read\0")?),
+                take_audio: std::mem::transmute::<*const (), TakeAudio>(get(b"mkw_audio\0")?),
+                mute_sound_players: std::mem::transmute::<*const (), MuteSoundPlayers>(get(b"mkw_mute_sound_players\0")?),
                 _library: std::mem::ManuallyDrop::new(library),
             })
         }
@@ -124,6 +143,17 @@ impl Game {
     pub fn read(&self, address: u32, out: &mut [u8]) -> bool {
         // SAFETY: the API writes at most `out.len()` bytes.
         unsafe { (self.read)(address, out.as_mut_ptr(), out.len() as u32) == 0 }
+    }
+
+    /// Where the game's sound is taken from.
+    pub fn audio(&self) -> AudioTap {
+        AudioTap(self.take_audio)
+    }
+
+    /// The game's sound players kept silent, by bit (player 0's is bit 0).
+    pub fn mute_sound_players(&self, mask: u32) {
+        // SAFETY: a plain value.
+        unsafe { (self.mute_sound_players)(mask) }
     }
 
     /// The local kart after the last frame.
