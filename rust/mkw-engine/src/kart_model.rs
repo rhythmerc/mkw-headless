@@ -202,6 +202,10 @@ fn model_meshes(
         let material = material_of.get(&(poly as u32)).and_then(|&m| model.materials.get(m as usize));
         // (the colours as the file has them: the crate reads a colour a byte)
         let colors = colors.and_then(|c| raw_colors(bytes, &c.name));
+        // (greys only: not colour but the console's lighting baked in - the material colour its lights brighten back
+        // towards white. The runtime lights the model itself, so they're left out: a white texel is white, the
+        // room's reference white under its light)
+        let baked_light = colors.as_ref().is_some_and(|c| c.iter().all(|v| v[0] == v[1] && v[1] == v[2]));
         let mut data = MeshData::default();
         let mut seen: HashMap<[u16; 5], u16> = HashMap::new();
         let mut corners: Vec<u16> = Vec::new();
@@ -283,7 +287,7 @@ fn model_meshes(
             Some(m) => material_desc!(m, archive, textures, texture_ids),
             None => MaterialDesc::default(),
         };
-        if data.colors.is_empty() {
+        if data.colors.is_empty() || baked_light {
             data.material.vertex_color = false;
         }
         if !data.indices.is_empty() {
@@ -649,6 +653,8 @@ mod tests {
         let colours = raw_colors(mario, "mario_body__mario_all_tx").expect("Mario's colours");
         assert_eq!(colours.len(), 139);
         assert_eq!(colours[..2], [[0x49; 4], [0xC5; 4]]);
+        // (greys, the console's baked lighting: not multiplied in - Mario's white is white)
+        assert!(meshes.iter().all(|m| !m.material.vertex_color), "baked lighting left out");
         // (and wound with the normals: most triangles face the way their corners' normals do)
         for m in meshes {
             let agree = m.indices.chunks(3).filter(|t| {
