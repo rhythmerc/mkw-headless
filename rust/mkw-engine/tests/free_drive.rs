@@ -36,29 +36,47 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
     let drive = TouchState { right_trigger: 1.0, ..Default::default() };
     let idle = TouchState::default();
     let mut track = Vec::new();
+    // (the kart's parts, each joint's place in the body's space: at rest, and while it drives)
+    let parts = |engine: &mut Box<dyn engine_core::EngineCore>| {
+        let mut poses = Vec::new();
+        engine.poses(&mut poses);
+        poses.first().map(|p| p.joints.iter().map(|j| j.w_axis.truncate()).collect::<Vec<_>>())
+    };
+    let (mut at_rest, mut driving) = (None, None);
     for frame in 0..1500 {
         // (the countdown first, about four seconds: then the trigger)
         engine.set_input(if frame > 240 { &drive } else { &idle }, PadHeld::default());
         engine.step().expect("a frame");
         let focus = engine.focus().expect("the kart");
         track.push(focus.feet);
+        if frame == 200 {
+            at_rest = parts(&mut engine);
+        }
+        if frame == 650 {
+            driving = parts(&mut engine);
+            eprintln!("speed at frame 650: {:.3} m a frame", (track[650] - track[649]).length());
+        }
         if frame % 30 == 0 && std::env::var_os("MKW_TRACE").is_some() {
             eprintln!("frame {frame}: feet {} forward {}", focus.feet, focus.forward);
         }
     }
-    // (the kart drawn with the game's own models, posed where the kart is: its body's joint at the kart, the others
-    // around it - the wheels, Mario over it)
+    // (the kart drawn with the game's own models: the body at the kart, the wheels and Mario about it; while it drives,
+    // each part where it was at rest about the body - this frame's parts, not their lagging twins)
     let mut poses = Vec::new();
     engine.poses(&mut poses);
     let pose = poses.first().expect("a pose");
     let feet = engine.focus().unwrap().feet;
+    assert_eq!(pose.joints.len(), 20, "the kart's own look: the body, four wheels, Mario's 15 nodes");
+    assert!(pose.joints.iter().all(|j| *j != engine_core::glam::Mat4::ZERO), "every part found");
     let at: Vec<_> = pose.joints.iter().map(|j| pose.root.transform_point3(j.w_axis.truncate())).collect();
-    eprintln!("joints: {} at {:?}", pose.joints.len(), at.iter().map(|p| format!("{p:.2}")).collect::<Vec<_>>());
-    if pose.joints.len() > 1 {
-        assert_eq!(pose.joints.len(), 20, "the body, four wheels, Mario's 15 nodes");
-        assert!(pose.joints.iter().all(|j| *j != engine_core::glam::Mat4::ZERO), "every part found");
-        assert!(at.iter().all(|p| (*p - feet).length() < 2.0), "every part at the kart: {feet}");
-        assert!((at[0] - feet).length() < 0.5, "the body at the kart");
+    assert!(at.iter().all(|p| (*p - feet).length() < 2.0), "every part at the kart: {feet}");
+    assert!((pose.root.w_axis.truncate() - feet).length() < 0.5, "the root at the kart");
+    let (at_rest, driving) = (at_rest.expect("a pose at rest"), driving.expect("a pose driving"));
+    // (the parts' roots: the body, the wheels, Mario's skeleton's root; game units)
+    for joint in [0usize, 1, 2, 3, 4, 5] {
+        let moved = (driving[joint] - at_rest[joint]).length();
+        eprintln!("joint {joint}: {:.1} units from where it was at rest", moved);
+        assert!(moved < 6.0, "joint {joint} with the body while it drives: {moved} units off");
     }
     let start = track[200];
     let end = *track.last().unwrap();

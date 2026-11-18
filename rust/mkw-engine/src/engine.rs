@@ -45,11 +45,11 @@ pub struct Mkwii {
     pad: Pad,
     kart: Option<Kart>,
     model: Option<Model>,
-    /// The kart's own look (else the box), where its scene models are, and its joints after the last frame (game
-    /// units).
+    /// The kart's own look (else the box), where its scene models are, and after the last frame its body's world
+    /// matrix and its joints in the body's space (game units).
     look: Option<KartModel>,
     locator: Locator,
-    joints: Option<Vec<Mat4>>,
+    joints: Option<(Mat4, Vec<Mat4>)>,
     /// Frames until looking for the scene models again.
     relocate_in: u32,
     posed: bool,
@@ -271,7 +271,7 @@ impl EngineCore for Mkwii {
         }
         let (root, joints) = match (&self.look, &self.joints, self.space) {
             // (the game's matrices, in its space: carried into the contract's)
-            (Some(_), Some(joints), Some(space)) => (space.frame_from_game(Mat4::IDENTITY), joints.clone()),
+            (Some(_), Some((body, joints)), Some(space)) => (space.frame_from_game(*body), joints.clone()),
             (Some(_), _, _) => return,
             (None, _, _) => {
                 let Some(root) = self.kart.as_ref().and_then(|k| self.kart_frame(k)) else { return };

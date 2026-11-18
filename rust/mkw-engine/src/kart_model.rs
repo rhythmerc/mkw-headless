@@ -10,6 +10,7 @@
 //!
 //! **The pose.** The game's scene keeps each drawn model as a g3d scene model (`ScnMdlSimple`) holding its `ResMdl`
 //! (where the model's MDL0 is) and, one word on, its nodes' world matrices (3x4, game units) as the frame left them.
+//! The pose's root is the body's (so the model is where the kart is), its joints those matrices in the body's space.
 //! [`Locator`] finds them in the game's memory: the MDL0s by their bytes, then the words pointing at them. The scene
 //! has each part twice: the one for this frame and a twin a couple of frames behind (the same where the kart is
 //! still). [`Locator::pose`] tells them apart each frame by the body (this frame's is where the game reports the
@@ -403,9 +404,10 @@ impl Locator {
         }
     }
 
-    /// The kart's joints this frame (game units: the game's world matrices), the kart at `kart_position`; a part not
-    /// found folded away (zero). None when the scene models aren't where they were found any more.
-    pub fn pose(&self, memory: &dyn Memory, kart: &KartModel, kart_position: Vec3) -> Option<Vec<Mat4>> {
+    /// The kart this frame, the game reporting it at `kart_position`: its body's world matrix (game units) and each
+    /// joint in the body's space; a part not found folded away (zero). None when the scene models aren't where they
+    /// were found any more.
+    pub fn pose(&self, memory: &dyn Memory, kart: &KartModel, kart_position: Vec3) -> Option<(Mat4, Vec<Mat4>)> {
         // (each scene model's node matrices now)
         let mut now: Vec<(Found, Vec<Mat4>)> = Vec::new();
         for f in &self.found {
@@ -474,11 +476,11 @@ impl Locator {
             }
             for (slot, c) in slots.iter().zip(&chosen) {
                 for (n, m) in c.1.iter().enumerate().take(slot.nodes) {
-                    joints[usize::from(slot.joint) + n] = *m;
+                    joints[usize::from(slot.joint) + n] = into_current * *m;
                 }
             }
         }
-        Some(joints)
+        Some((current, joints))
     }
 }
 
