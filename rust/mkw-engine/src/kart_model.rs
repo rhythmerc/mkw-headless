@@ -123,15 +123,18 @@ macro_rules! material_desc {
     ($m:expr, $archive:expr, $textures:expr, $ids:expr) => {{
     let (m, archive, textures, ids): (_, &brres::Archive, &mut Vec<Rgba8>, &mut HashMap<String, u32>) = ($m, $archive, $textures, $ids);
     let texture = m.samplers.first().and_then(|s| {
-        if let Some(&id) = ids.get(&s.mTexture) {
+        // (mirrored at its edges: baked in, the texture and its mirror image side by side - the runtime repeats)
+        let (mirror_u, mirror_v) = (s.mWrapU == brres::enums::TextureWrapMode::Mirror, s.mWrapV == brres::enums::TextureWrapMode::Mirror);
+        let key = format!("{}{}{}", s.mTexture, if mirror_u { "|mu" } else { "" }, if mirror_v { "|mv" } else { "" });
+        if let Some(&id) = ids.get(&key) {
             return Some(id);
         }
         let t = archive.get_texture(&s.mTexture)?;
         let format = gctex::TextureFormat::from_u32(t.format)?;
-        let pixels = gctex::decode(&t.data, t.width, t.height, format, &[], 0);
+        let image = mirrored(Rgba8 { width: t.width, height: t.height, pixels: gctex::decode(&t.data, t.width, t.height, format, &[], 0) }, mirror_u, mirror_v);
         let id = textures.len() as u32;
-        textures.push(Rgba8 { width: t.width, height: t.height, pixels });
-        ids.insert(s.mTexture.clone(), id);
+        textures.push(image);
+        ids.insert(key, id);
         Some(id)
     });
     let vertex_color = m.colorChanControls.first().is_some_and(|c| c.Material == brres::enums::ColorSource::Vertex);
@@ -246,6 +249,19 @@ fn model_meshes(
                 triangles(kind, &prim, &mut corners);
             }
         }
+        // (the texture's coordinates as its material's texture matrix makes them - scaled, moved - and halved where
+        // its texture is baked mirrored)
+        if let Some(m) = material {
+            let (scale, offset) = m.texMatrices.first().map_or(((1.0, 1.0), (0.0, 0.0)), |t| (t.scale, t.translate));
+            let mirror = m.samplers.first().map_or((false, false), |s| {
+                (s.mWrapU == brres::enums::TextureWrapMode::Mirror, s.mWrapV == brres::enums::TextureWrapMode::Mirror)
+            });
+            for uv in &mut data.uvs {
+                let u = uv[0] * scale.0 + offset.0;
+                let v = uv[1] * scale.1 + offset.1;
+                *uv = [if mirror.0 { u / 2.0 } else { u }, if mirror.1 { v / 2.0 } else { v }];
+            }
+        }
         // (GX's front face is the other way round from the contract's: turned by whichever way agrees with the
         // vertices' normals, most of the time)
         let agree: f32 = corners
@@ -306,6 +322,21 @@ fn triangles(kind: u8, v: &[u16], out: &mut Vec<u16>) {
         // (lines and points: not drawn)
         _ => {}
     }
+}
+
+/// An image with its mirror image after it, across (`u`) and down (`v`): repeating it is mirroring the original.
+fn mirrored(image: Rgba8, u: bool, v: bool) -> Rgba8 {
+    let (w, h) = (image.width as usize, image.height as usize);
+    let (nw, nh) = (if u { 2 * w } else { w }, if v { 2 * h } else { h });
+    let mut pixels = vec![0u8; nw * nh * 4];
+    for y in 0..nh {
+        let sy = if y < h { y } else { 2 * h - 1 - y };
+        for x in 0..nw {
+            let sx = if x < w { x } else { 2 * w - 1 - x };
+            pixels[(y * nw + x) * 4..][..4].copy_from_slice(&image.pixels[(sy * w + sx) * 4..][..4]);
+        }
+    }
+    Rgba8 { width: nw as u32, height: nh as u32, pixels }
 }
 
 /// An 8-bit sRGB channel, linear.
@@ -502,6 +533,14 @@ mod tests {
         out.clear();
         triangles(0x80, &[0, 1, 2, 3], &mut out);
         assert_eq!(out, [0, 1, 2, 0, 2, 3]);
+    }
+
+    #[test]
+    fn a_mirrored_texture_repeats_as_the_original_mirrors() {
+        let image = Rgba8 { width: 2, height: 1, pixels: vec![1, 0, 0, 0, 2, 0, 0, 0] };
+        let m = mirrored(image, true, false);
+        assert_eq!((m.width, m.height), (4, 1));
+        assert_eq!(m.pixels.chunks(4).map(|p| p[0]).collect::<Vec<_>>(), [1, 2, 2, 1]);
     }
 
     #[test]

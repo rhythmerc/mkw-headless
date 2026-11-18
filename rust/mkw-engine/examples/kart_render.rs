@@ -127,6 +127,25 @@ fn main() {
         engine.step().unwrap();
     }
     shoot(&mut engine, "kart-start");
+    // (Mario's head close up, all round; and again without his eyes' mesh, the last)
+    if std::env::var_os("FACE").is_some() {
+        engine.step().unwrap();
+        let mut poses = Vec::new();
+        engine.poses(&mut poses);
+        let f = engine.focus().unwrap();
+        let side = f.forward.cross(Vec3::Y).normalize();
+        let head = poses[0].root.transform_point3(poses[0].joints[19].w_axis.truncate());
+        let mut no_eyes = model.clone();
+        if let ModelSource::Meshes { meshes, .. } = &mut no_eyes.source {
+            meshes.pop();
+        }
+        for (name, dir) in [("front", f.forward), ("left", f.forward - side), ("right", f.forward + side), ("side", -side), ("above", f.forward + Vec3::Y)] {
+            let eye = head + dir.normalize() * 1.8 + Vec3::Y * 0.1;
+            render(&model, &poses[0], eye, head, &out.join(format!("face-{name}.png")));
+        }
+        render(&no_eyes, &poses[0], head + f.forward * 1.8 + Vec3::Y * 0.1, head, &out.join("face-front-no-eye-mesh.png"));
+        std::process::exit(0);
+    }
     let turn = TouchState { right_trigger: 1.0, left_stick: [1.0, 0.0], ..Default::default() };
     let idle = TouchState::default();
     for frame in 0..420 {

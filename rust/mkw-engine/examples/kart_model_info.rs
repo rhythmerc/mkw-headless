@@ -20,13 +20,25 @@ fn main() {
                 }
                 println!("    mesh {} pos {} uv {:?} clr {:?} mprims {} prims {} current_matrix {}", m.name, m.pos_buffer, m.uv_buffer, m.clr_buffer, m.mprims.len(), prims, m.current_matrix);
             }
+            for t in &model.texcoords {
+                let (lo, hi) = t.data.iter().fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), v| ([lo[0].min(v[0]), lo[1].min(v[1])], [hi[0].max(v[0]), hi[1].max(v[1])]));
+                println!("    uvs {}: {} from {:.2?} to {:.2?}", t.name, t.data.len(), lo, hi);
+            }
+            for m in &model.materials {
+                for s in &m.samplers {
+                    println!("    material {} texture {} wrap {:?} {:?}", m.name, s.mTexture, s.mWrapU, s.mWrapV);
+                }
+                for t in &m.texMatrices {
+                    println!("      tex matrix {:?}", t);
+                }
+            }
             for p in &model.positions {
                 let (lo, hi) = p.data.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), v| {
                     ([lo[0].min(v[0]), lo[1].min(v[1]), lo[2].min(v[2])], [hi[0].max(v[0]), hi[1].max(v[1]), hi[2].max(v[2])])
                 });
                 println!("    positions {}: {} from {:.1?} to {:.1?}", p.name, p.data.len(), lo, hi);
             }
-            for (i, d) in model.matrices.iter().enumerate().take(12) {
+            for (i, d) in model.matrices.iter().enumerate() {
                 println!("    matrix {i}: {:?}", d.weights.iter().map(|w| (w.bone_id, w.weight)).collect::<Vec<_>>());
             }
         }
@@ -36,3 +48,6 @@ fn main() {
         println!("  chrs {}", archive.chrs.len());
     }
 }
+
+#[allow(dead_code)]
+fn _unused() {}
