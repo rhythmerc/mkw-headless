@@ -48,15 +48,16 @@ type Step = unsafe extern "C" fn(*const Pad) -> c_int;
 type GetKart = unsafe extern "C" fn(*mut Kart) -> c_int;
 type SetCourseKcl = unsafe extern "C" fn(*const u8, u32);
 
-/// The loaded game. One a process: the game keeps its state in the library's globals.
+/// The loaded game. One a process: the game keeps its state in the library's globals, and the library stays loaded
+/// when this goes (its threads still run in it).
 pub struct Game {
     boot: Boot,
     racing: Racing,
     step: Step,
     kart: GetKart,
     set_course_kcl: SetCourseKcl,
-    // (kept loaded: the game's thread runs in it)
-    _library: libloading::Library,
+    // (never unloaded: the game's threads run in it until the process ends)
+    _library: std::mem::ManuallyDrop<libloading::Library>,
 }
 
 impl Game {
@@ -78,7 +79,7 @@ impl Game {
                 step: std::mem::transmute::<*const (), Step>(get(b"mkw_step\0")?),
                 kart: std::mem::transmute::<*const (), GetKart>(get(b"mkw_kart\0")?),
                 set_course_kcl: std::mem::transmute::<*const (), SetCourseKcl>(get(b"mkw_set_course_kcl\0")?),
-                _library: library,
+                _library: std::mem::ManuallyDrop::new(library),
             })
         }
     }
