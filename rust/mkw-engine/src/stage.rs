@@ -2,16 +2,15 @@
 //!
 //! The race is a solo time trial on Luigi Circuit, its course swapped for the stage (the game's start stays where the
 //! course has it):
-//! the stage is laid so the place the player is put down is at the course's start, facing the way the race starts
-//! (the game's -z), its floor (y = 0) under the start, the room [`UNITS`] game units a metre (toy-sized karts).
+//! the stage is laid so the place the player is put down (at its height: the floor, a table) is at the course's start,
+//! facing the way the race starts (the game's -z), the room [`UNITS`] game units a metre (toy-sized karts).
 use crate::kcl::{self, Triangle};
 use engine_core::Stage;
 use engine_core::glam::{Mat4, Quat, Vec3};
 
-/// Game units a metre: the kart toy-sized in the room (about 31 cm long, Mario about 19 cm tall; the game's own scale
-/// is about 100 units a metre). The stage is laid in the game this much larger, so the kart drives as it does on a
-/// course, a room its size to it.
-pub const UNITS: f32 = 800.0;
+/// Game units a metre: the game's own (a kart about 2.5 m long, Mario about 1.5 m tall). How big that is in the room is
+/// the runtime's world scale (the app's default for Mario Kart Wii: 8 game metres a real one, a toy).
+pub const UNITS: f32 = 100.0;
 
 /// Where the race (a solo time trial on Luigi Circuit) puts the kart, at the floor the stage is laid on: the kart
 /// rests 26.7 units over it (measured: (-20115, 426.7, 25750) on a floor at 400).
@@ -46,7 +45,9 @@ impl Space {
     /// kart where it is, the way it faces.
     pub fn at(origin: Vec3, forward: Vec3, anchor: Vec3, game_forward: Vec3) -> Self {
         let turn = yaw(game_forward).unwrap_or(std::f32::consts::PI) - yaw(forward).unwrap_or(std::f32::consts::PI);
-        Self { origin: origin.with_y(0.0), turn: Quat::from_rotation_y(turn), anchor }
+        // (the point at its own height: a table's top, a ramp's, as much as the floor - `PlacePlayer`'s point is on the
+        // stage's ground, wherever that is)
+        Self { origin, turn: Quat::from_rotation_y(turn), anchor }
     }
 
     /// A contract point in the game.
@@ -98,9 +99,11 @@ mod tests {
 
     #[test]
     fn the_put_down_place_is_the_start_facing_the_race() {
+        // (put down on something 0.7 m up: that point, not the floor under it, at the start)
         let space = Space::new(Vec3::new(2.0, 0.7, -1.0), Vec3::X);
-        assert!((space.to_game(Vec3::new(2.0, 0.0, -1.0)) - START).length() < 1e-3, "the place, on the floor, at the start");
-        let ahead = space.to_game(Vec3::new(3.0, 0.0, -1.0)) - START;
+        assert!((space.to_game(Vec3::new(2.0, 0.7, -1.0)) - START).length() < 1e-3, "the place, at its height, at the start");
+        assert!((space.to_game(Vec3::new(2.0, 0.0, -1.0)) - (START - Vec3::Y * 0.7 * UNITS)).length() < 1e-2, "the floor under it, under the start");
+        let ahead = space.to_game(Vec3::new(3.0, 0.7, -1.0)) - START;
         assert!((ahead - Vec3::new(0.0, 0.0, -UNITS)).length() < 1e-2, "a metre ahead: UNITS along -z, {ahead}");
         let p = Vec3::new(0.5, 1.2, 3.0);
         assert!((space.from_game(space.to_game(p)) - p).length() < 1e-4);

@@ -126,5 +126,21 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
     }
     eprintln!("then: {last}");
     assert!(last.x > m(7.0) && last.y.abs() < m(0.3), "held at the new wall: {last}");
+
+    // Put down on a raised surface (a platform 5 m up, taller than the collision's slab is thick, so the kart can't be
+    // pushed up through it from the floor): it is on the platform, not the floor under it.
+    let mut stage3 = stage2.clone();
+    stage3.revision = 3;
+    let top = m(5.0);
+    stage3.room_quads.push([Vec3::new(m(-28.0), top, m(-5.0)), Vec3::new(m(-28.0), top, m(5.0)), Vec3::new(m(-18.0), top, m(5.0)), Vec3::new(m(-18.0), top, m(-5.0))]);
+    assert_eq!(engine.set_stage(&stage3), Applied::Done);
+    engine.place_player(PlacePlayer { point: Vec3::new(m(-23.0), top, 0.0), forward: Vec3::X });
+    engine.set_input(&idle, PadHeld::default());
+    for _ in 0..90 {
+        engine.step().expect("a frame");
+    }
+    let raised = engine.focus().expect("the kart").feet;
+    eprintln!("put down on the platform: {raised}");
+    assert!((raised.y - top).abs() < m(0.3) && (raised.x - m(-23.0)).abs() < m(1.0), "on the platform, {top} up: {raised}");
     let _ = std::fs::remove_dir_all(data);
 }
