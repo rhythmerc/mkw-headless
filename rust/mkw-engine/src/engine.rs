@@ -3,8 +3,8 @@
 //! (the course's collision is read as the race loads), and stepped a frame (1/60 s) at a time once the race has
 //! started. The kart is drawn as a stand-in box for now; the game's own models come later.
 //!
-//! For now the stage is taken once, at the start: a stage changed later, or the player put down again, waits for the
-//! game to be made again (a restart of the engine).
+//! A stage changed later is swapped in at the next frame; putting the player down again lays the stage again under
+//! the kart, so it is where it was put (the world moves under it).
 use crate::native::{Game, Kart, Pad, button};
 use crate::stage::{Space, UNITS};
 use crate::kcl;
@@ -35,8 +35,9 @@ pub struct Mkwii {
     game: Game,
     disc: PathBuf,
     data: PathBuf,
-    /// The stage laid onto the course (from the start).
+    /// The stage laid onto the course (from the start), and the last one given.
     space: Option<Space>,
+    stage: Option<Stage>,
     place: Option<PlacePlayer>,
     pad: Pad,
     kart: Option<Kart>,
@@ -47,7 +48,7 @@ pub struct Mkwii {
 
 impl Mkwii {
     fn new(game: Game, disc: PathBuf, data: PathBuf) -> Self {
-        Self { game, disc, data, space: None, place: None, pad: Pad::default(), kart: None, model: Some(stand_in()), posed: false, cut: true }
+        Self { game, disc, data, space: None, stage: None, place: None, pad: Pad::default(), kart: None, model: Some(stand_in()), posed: false, cut: true }
     }
 
     /// The kart's frame in the contract: its axes from the game's 3x4 row-major matrix, at its position.
@@ -62,6 +63,17 @@ impl Mkwii {
             Vec4::new(kart.position[0], kart.position[1], kart.position[2], 1.0),
         );
         Some(space.frame_from_game(game))
+    }
+}
+
+impl Mkwii {
+    /// The stage as the course's collision, laid in the space it is in now.
+    fn lay(&mut self) {
+        let (Some(space), Some(stage)) = (self.space, self.stage.as_ref()) else { return };
+        match kcl::write(&space.triangles(stage)) {
+            Ok(kcl) => self.game.set_course_kcl(&kcl),
+            Err(e) => eprintln!("MKWii: the stage's collision: {e:?}"),
+        }
     }
 }
 
@@ -139,30 +151,39 @@ impl EngineCore for Mkwii {
     }
 
     /// The first stage, laid where the player is put down (else its origin), as the course's collision; then the race
-    /// boots. Later stages wait for the next time the game is made.
+    /// boots. A later one is the course's collision from the next frame, laid the same way.
     fn set_stage(&mut self, stage: &Stage) -> Applied {
-        if self.space.is_some() {
-            return Applied::Done;
-        }
         if stage.revision == 0 {
             return Applied::Deferred;
         }
-        let space = self.place.map_or(Space::new(Vec3::ZERO, Vec3::NEG_Z), |p| Space::new(p.point, p.forward));
-        match kcl::write(&space.triangles(stage)) {
-            Ok(kcl) => self.game.set_course_kcl(&kcl),
-            Err(e) => eprintln!("MKWii: the stage's collision: {e:?}"),
+        if self.stage.as_ref().is_some_and(|s| s.revision == stage.revision) {
+            return Applied::Done;
         }
+        self.stage = Some(stage.clone());
+        if self.space.is_some() {
+            self.lay();
+            return Applied::Done;
+        }
+        let space = self.place.map_or(Space::new(Vec3::ZERO, Vec3::NEG_Z), |p| Space::new(p.point, p.forward));
+        self.space = Some(space);
+        self.lay();
         if let Err(e) = self.game.boot(&self.disc, &self.data) {
             eprintln!("MKWii: {e}");
         }
-        self.space = Some(space);
         Applied::Done
     }
 
+    /// Before the race: where the stage is laid. During it: the stage laid again under the kart, so that it is
+    /// where it was put down, facing that way (the world moves, not the kart).
     fn place_player(&mut self, place: PlacePlayer) {
-        if self.space.is_none() {
-            self.place = Some(place);
-        }
+        self.place = Some(place);
+        let Some(kart) = self.kart else { return };
+        let m = &kart.matrix;
+        let floor = Vec3::from_array(kart.position) - Vec3::Y * KART_RIDE;
+        let forward = Vec3::new(m[2], m[6], m[10]);
+        self.space = Some(Space::at(place.point, place.forward, floor, forward));
+        self.cut = true;
+        self.lay();
     }
 
     /// Once the race has started (loading runs on the game's own thread).

@@ -18,34 +18,53 @@ pub const START: Vec3 = Vec3::new(-20115.0, 400.0, 25750.0);
 /// A face is ground (driven on, turned to face up) when its normal is at least this much up.
 const GROUND_UP: f32 = 0.45;
 
-/// The contract's space laid onto the game's: the contract's `origin` at [`START`], its `forward` along the game's -z.
+/// The contract's space laid onto the game's: the contract's `origin` (on its floor) at the game's `anchor`, its
+/// `forward` along the game's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Space {
     origin: Vec3,
     turn: Quat,
+    anchor: Vec3,
+}
+
+/// The yaw of a direction's level part (0 along +z).
+fn yaw(d: Vec3) -> Option<f32> {
+    let d = d.with_y(0.0).try_normalize()?;
+    Some(d.x.atan2(d.z))
 }
 
 impl Space {
-    /// `origin` (where the player is put down) at the start, facing `forward` (its level part).
+    /// `origin` (where the player is put down) at the race's start, facing `forward` (its level part) the way the
+    /// race starts (the game's -z).
     pub fn new(origin: Vec3, forward: Vec3) -> Self {
-        let f = forward.with_y(0.0).try_normalize().unwrap_or(Vec3::NEG_Z);
-        let yaw = f.x.atan2(f.z) - Vec3::NEG_Z.x.atan2(Vec3::NEG_Z.z);
-        Self { origin: origin.with_y(0.0), turn: Quat::from_rotation_y(-yaw) }
+        Self::at(origin, forward, START, Vec3::NEG_Z)
+    }
+
+    /// `origin` facing `forward` at the game's `anchor` (a floor point) facing `game_forward`: the stage laid under a
+    /// kart where it is, the way it faces.
+    pub fn at(origin: Vec3, forward: Vec3, anchor: Vec3, game_forward: Vec3) -> Self {
+        let turn = yaw(game_forward).unwrap_or(std::f32::consts::PI) - yaw(forward).unwrap_or(std::f32::consts::PI);
+        Self { origin: origin.with_y(0.0), turn: Quat::from_rotation_y(turn), anchor }
     }
 
     /// A contract point in the game.
     pub fn to_game(&self, p: Vec3) -> Vec3 {
-        START + self.turn * (p - self.origin) * UNITS
+        self.anchor + self.turn * (p - self.origin) * UNITS
     }
 
     /// A game point in the contract.
     pub fn from_game(&self, g: Vec3) -> Vec3 {
-        self.origin + self.turn.inverse() * ((g - START) / UNITS)
+        self.origin + self.turn.inverse() * ((g - self.anchor) / UNITS)
+    }
+
+    /// A game direction in the contract.
+    pub fn dir_from_game(&self, d: Vec3) -> Vec3 {
+        self.turn.inverse() * d
     }
 
     /// A game frame (a matrix placing something, in game units) in the contract.
     pub fn frame_from_game(&self, m: Mat4) -> Mat4 {
-        let to = Mat4::from_translation(self.origin) * Mat4::from_quat(self.turn.inverse()) * Mat4::from_scale(Vec3::splat(1.0 / UNITS)) * Mat4::from_translation(-START);
+        let to = Mat4::from_translation(self.origin) * Mat4::from_quat(self.turn.inverse()) * Mat4::from_scale(Vec3::splat(1.0 / UNITS)) * Mat4::from_translation(-self.anchor);
         to * m
     }
 
@@ -85,6 +104,10 @@ mod tests {
         assert!((space.from_game(space.to_game(p)) - p).length() < 1e-4);
         let m = Mat4::from_translation(space.to_game(p));
         assert!((space.frame_from_game(m).w_axis.truncate() - p).length() < 1e-4);
+        // (laid under a kart somewhere else, facing +x in the game)
+        let under = Space::at(Vec3::new(1.0, 0.0, 1.0), Vec3::Z, Vec3::new(500.0, 30.0, -200.0), Vec3::X);
+        assert!((under.to_game(Vec3::new(1.0, 0.0, 1.0)) - Vec3::new(500.0, 30.0, -200.0)).length() < 1e-3);
+        assert!((under.to_game(Vec3::new(1.0, 0.0, 2.0)) - Vec3::new(600.0, 30.0, -200.0)).length() < 1e-2, "forward is the game's +x");
     }
 
     #[test]
