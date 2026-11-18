@@ -26,7 +26,7 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
     engine.place_player(PlacePlayer { point: Vec3::ZERO, forward: Vec3::X });
     assert_eq!(engine.set_stage(&stage), Applied::Done);
     let models = engine.models();
-    assert_eq!(models.len(), 1, "the kart's stand-in");
+    assert_eq!(models.len(), 1, "the kart");
 
     let started = std::time::Instant::now();
     while !engine.wants_steps() {
@@ -45,6 +45,20 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
         if frame % 30 == 0 && std::env::var_os("MKW_TRACE").is_some() {
             eprintln!("frame {frame}: feet {} forward {}", focus.feet, focus.forward);
         }
+    }
+    // (the kart drawn with the game's own models, posed where the kart is: its body's joint at the kart, the others
+    // around it - the wheels, Mario over it)
+    let mut poses = Vec::new();
+    engine.poses(&mut poses);
+    let pose = poses.first().expect("a pose");
+    let feet = engine.focus().unwrap().feet;
+    let at: Vec<_> = pose.joints.iter().map(|j| pose.root.transform_point3(j.w_axis.truncate())).collect();
+    eprintln!("joints: {} at {:?}", pose.joints.len(), at.iter().map(|p| format!("{p:.2}")).collect::<Vec<_>>());
+    if pose.joints.len() > 1 {
+        assert_eq!(pose.joints.len(), 20, "the body, four wheels, Mario's 15 nodes");
+        assert!(pose.joints.iter().all(|j| *j != engine_core::glam::Mat4::ZERO), "every part found");
+        assert!(at.iter().all(|p| (*p - feet).length() < 2.0), "every part at the kart: {feet}");
+        assert!((at[0] - feet).length() < 0.5, "the body at the kart");
     }
     let start = track[200];
     let end = *track.last().unwrap();

@@ -12,3 +12,7 @@ license = "GPL-3.0-or-later"
 
 [profile.dev]
 opt-level = 3
+
+# (brres-sys with its C strings typed for arm64 too: third_party/brres-sys/BUILDAR.md)
+[patch.crates-io]
+brres-sys = { path = "third_party/brres-sys" }

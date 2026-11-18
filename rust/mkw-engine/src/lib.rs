@@ -5,11 +5,14 @@
 //! - [`kcl`]: course collision (KCL) written from triangles, and read back.
 //! - [`native`]: the game library, loaded.
 //! - [`stage`]: the stage as the course's collision, and the contract's space as the game's.
+//! - [`szs`]: the game's archives (Yaz0, U8).
 //! - [`engine`]: the game as the runtime drives it ([`engine_core::EngineCore`]): free driving on the stage.
 pub mod engine;
 pub mod kcl;
 pub mod native;
 pub mod stage;
+pub mod szs;
+pub mod kart_model;
 
 /// The game files: the player's extracted disc (`files/` and `sys/`) with the game library built from it.
 pub const DATA: engine_core::GameFiles = engine_core::GameFiles {

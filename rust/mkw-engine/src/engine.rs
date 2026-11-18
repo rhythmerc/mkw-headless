@@ -1,13 +1,15 @@
 //! The game as the runtime drives it ([`engine_core::EngineCore`]): free driving on the stage. The race is a 1P race on
 //! Luigi Circuit with its course's collision swapped for the stage's ([`crate::stage`]), booted once the stage is in
 //! (the course's collision is read as the race loads), and stepped a frame (1/60 s) at a time once the race has
-//! started. The kart is drawn as a stand-in box for now; the game's own models come later.
+//! started. The kart is drawn with the game's own models, posed by the game's own matrices ([`crate::kart_model`]);
+//! a box stands in when the disc's kart can't be read.
 //!
 //! A stage changed later is swapped in at the next frame; putting the player down again lays the stage again under
 //! the kart, so it is where it was put (the world moves under it).
 use crate::native::{Game, Kart, Pad, button};
 use crate::stage::{Space, UNITS};
 use crate::kcl;
+use crate::kart_model::{self, KartModel, Locator};
 use engine_core::model::{Lighting, MaterialDesc, MeshData};
 use engine_core::glam::{Mat4, Vec3, Vec4};
 use engine_core::{Applied, EngineCore, EngineFactory, Focus, Model, ModelSource, PadHeld, PlacePlayer, Pose, Stage, TouchState};
@@ -26,7 +28,8 @@ const KART_RIDE: f32 = 26.7;
 pub fn factory(library: PathBuf, disc: PathBuf, data: PathBuf) -> EngineFactory {
     Box::new(move || {
         let game = Game::load(&library)?;
-        Ok(Box::new(Mkwii::new(game, disc, data)) as Box<dyn EngineCore>)
+        let look = kart_model::load(&disc).map_err(|e| eprintln!("MKWii: the kart's models: {e}; a box stands in")).ok();
+        Ok(Box::new(Mkwii::new(game, disc, data, look)) as Box<dyn EngineCore>)
     })
 }
 
@@ -42,13 +45,58 @@ pub struct Mkwii {
     pad: Pad,
     kart: Option<Kart>,
     model: Option<Model>,
+    /// The kart's own look (else the box), where its scene models are, and its joints after the last frame (game
+    /// units).
+    look: Option<KartModel>,
+    locator: Locator,
+    joints: Option<Vec<Mat4>>,
+    /// Frames until looking for the scene models again.
+    relocate_in: u32,
     posed: bool,
     cut: bool,
 }
 
 impl Mkwii {
-    fn new(game: Game, disc: PathBuf, data: PathBuf) -> Self {
-        Self { game, disc, data, space: None, stage: None, place: None, pad: Pad::default(), kart: None, model: Some(stand_in()), posed: false, cut: true }
+    fn new(game: Game, disc: PathBuf, data: PathBuf, look: Option<KartModel>) -> Self {
+        let model = Some(look.as_ref().map_or_else(stand_in, |l| l.model.clone()));
+        Self {
+            game,
+            disc,
+            data,
+            space: None,
+            stage: None,
+            place: None,
+            pad: Pad::default(),
+            kart: None,
+            model,
+            look,
+            locator: Locator::default(),
+            joints: None,
+            relocate_in: 0,
+            posed: false,
+            cut: true,
+        }
+    }
+
+    /// The kart's joints from the game's scene: found the first time (and again, a second on, when they're lost).
+    fn pose_look(&mut self, kart: &Kart) {
+        let Some(look) = self.look.as_ref() else { return };
+        if !self.locator.found() {
+            if self.relocate_in > 0 {
+                self.relocate_in -= 1;
+                return;
+            }
+            self.locator.locate(&self.game, look);
+            if !self.locator.found() {
+                eprintln!("MKWii: the kart's scene models not found yet");
+                self.relocate_in = 60;
+                return;
+            }
+        }
+        self.joints = self.locator.pose(&self.game, look, Vec3::from_array(kart.position));
+        if self.joints.is_none() {
+            self.locator = Locator::default();
+        }
     }
 
     /// The kart's frame in the contract: its axes from the game's 3x4 row-major matrix, at its position.
@@ -194,6 +242,7 @@ impl EngineCore for Mkwii {
     fn step(&mut self) -> Result<(), String> {
         self.game.step(&self.pad)?;
         if let Some(kart) = self.game.kart() {
+            self.pose_look(&kart);
             self.kart = Some(kart);
             self.posed = true;
         }
@@ -220,8 +269,16 @@ impl EngineCore for Mkwii {
         if !std::mem::take(&mut self.posed) {
             return;
         }
-        let Some(root) = self.kart.as_ref().and_then(|k| self.kart_frame(k)) else { return };
-        out.push(Pose { model: KART, discontinuity: std::mem::take(&mut self.cut), root, joints: vec![Mat4::IDENTITY], ..Pose::default() });
+        let (root, joints) = match (&self.look, &self.joints, self.space) {
+            // (the game's matrices, in its space: carried into the contract's)
+            (Some(_), Some(joints), Some(space)) => (space.frame_from_game(Mat4::IDENTITY), joints.clone()),
+            (Some(_), _, _) => return,
+            (None, _, _) => {
+                let Some(root) = self.kart.as_ref().and_then(|k| self.kart_frame(k)) else { return };
+                (root, vec![Mat4::IDENTITY])
+            }
+        };
+        out.push(Pose { model: KART, discontinuity: std::mem::take(&mut self.cut), root, joints, ..Pose::default() });
     }
 }
 

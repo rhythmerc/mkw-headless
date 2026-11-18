@@ -16,3 +16,9 @@ glam = "=0.30.10"
 engine-core = { git = "https://github.com/rhythmerc/buildar-engine-core", rev = "1da95abb6dc14ea3d6cc72f8964014f8a1d24678" }
 # The game, built from the player's own disc, is loaded where they keep it: never linked.
 libloading = "0.8"
+# The game's models (BRRES/MDL0) and textures from the player's disc: riidefi's readers (RiiStudio's librii).
+brres = "0.1.7"
+gctex = "0.3.12"
+
+[dev-dependencies]
+png = "0.18"

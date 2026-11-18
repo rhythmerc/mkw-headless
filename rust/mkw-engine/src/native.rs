@@ -47,6 +47,7 @@ type Racing = unsafe extern "C" fn() -> c_int;
 type Step = unsafe extern "C" fn(*const Pad) -> c_int;
 type GetKart = unsafe extern "C" fn(*mut Kart) -> c_int;
 type SetCourseKcl = unsafe extern "C" fn(*const u8, u32);
+type Read = unsafe extern "C" fn(u32, *mut u8, u32) -> c_int;
 
 /// The loaded game. One a process: the game keeps its state in the library's globals, and the library stays loaded
 /// when this goes (its threads still run in it).
@@ -56,6 +57,7 @@ pub struct Game {
     step: Step,
     kart: GetKart,
     set_course_kcl: SetCourseKcl,
+    read: Read,
     // (never unloaded: the game's threads run in it until the process ends)
     _library: std::mem::ManuallyDrop<libloading::Library>,
 }
@@ -79,6 +81,7 @@ impl Game {
                 step: std::mem::transmute::<*const (), Step>(get(b"mkw_step\0")?),
                 kart: std::mem::transmute::<*const (), GetKart>(get(b"mkw_kart\0")?),
                 set_course_kcl: std::mem::transmute::<*const (), SetCourseKcl>(get(b"mkw_set_course_kcl\0")?),
+                read: std::mem::transmute::<*const (), Read>(get(b"mkw_read\0")?),
                 _library: std::mem::ManuallyDrop::new(library),
             })
         }
@@ -114,6 +117,13 @@ impl Game {
             0 => Ok(()),
             e => Err(format!("mkw_step: {e}")),
         }
+    }
+
+    /// The game's memory at guest `address` (big-endian, as the game has it), between steps: `out` filled, or false
+    /// where it isn't all there.
+    pub fn read(&self, address: u32, out: &mut [u8]) -> bool {
+        // SAFETY: the API writes at most `out.len()` bytes.
+        unsafe { (self.read)(address, out.as_mut_ptr(), out.len() as u32) == 0 }
     }
 
     /// The local kart after the last frame.
