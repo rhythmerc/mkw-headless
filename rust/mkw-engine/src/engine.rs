@@ -50,7 +50,7 @@ impl Mkwii {
         Self { game, disc, data, space: None, place: None, pad: Pad::default(), kart: None, model: Some(stand_in()), posed: false, cut: true }
     }
 
-    /// The kart's frame in the contract (its axes and position), from the game's 3x4 row-major matrix.
+    /// The kart's frame in the contract: its axes from the game's 3x4 row-major matrix, at its position.
     fn kart_frame(&self, kart: &Kart) -> Option<Mat4> {
         let space = self.space?;
         let m = &kart.matrix;
@@ -58,7 +58,8 @@ impl Mkwii {
             Vec4::new(m[0], m[4], m[8], 0.0),
             Vec4::new(m[1], m[5], m[9], 0.0),
             Vec4::new(m[2], m[6], m[10], 0.0),
-            Vec4::new(m[3], m[7], m[11], 1.0),
+            // (where the kart is: its position, as the game reports it)
+            Vec4::new(kart.position[0], kart.position[1], kart.position[2], 1.0),
         );
         Some(space.frame_from_game(game))
     }

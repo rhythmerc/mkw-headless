@@ -2,7 +2,7 @@
 //! (`MKW_ENGINE_LIB`) and extracted disc (`MKW_DISC_DIR`; skipped without them). A floor, a wall across the way ahead,
 //! the player put down facing +x; the right trigger held: the kart drives along +x on the floor and stops at the wall.
 use engine_core::glam::Vec3;
-use engine_core::{Applied, EngineCore, PadHeld, PlacePlayer, Stage, TouchState};
+use engine_core::{Applied, PadHeld, PlacePlayer, Stage, TouchState};
 use std::path::PathBuf;
 
 #[test]
@@ -34,13 +34,17 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     let drive = TouchState { right_trigger: 1.0, ..Default::default() };
+    let idle = TouchState::default();
     let mut track = Vec::new();
     for frame in 0..1500 {
         // (the countdown first, about four seconds: then the trigger)
-        engine.set_input(if frame > 240 { &drive } else { &TouchState::default() }, PadHeld::default());
+        engine.set_input(if frame > 240 { &drive } else { &idle }, PadHeld::default());
         engine.step().expect("a frame");
         let focus = engine.focus().expect("the kart");
         track.push(focus.feet);
+        if frame % 30 == 0 && std::env::var_os("MKW_TRACE").is_some() {
+            eprintln!("frame {frame}: feet {} forward {}", focus.feet, focus.forward);
+        }
     }
     let start = track[200];
     let end = *track.last().unwrap();

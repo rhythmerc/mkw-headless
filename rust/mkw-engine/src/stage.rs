@@ -1,6 +1,7 @@
 //! The stage as the course's collision, and the contract's space as the game's.
 //!
-//! The race is Luigi Circuit's, its course swapped for the stage (the game's start stays where the course has it):
+//! The race is a solo time trial on Luigi Circuit, its course swapped for the stage (the game's start stays where the
+//! course has it):
 //! the stage is laid so the place the player is put down is at the course's start, facing the way the race starts
 //! (the game's -z), its floor (y = 0) under the start. A game unit is a hundredth of a metre (the karts' size).
 use crate::kcl::{self, Triangle};
@@ -10,9 +11,9 @@ use engine_core::glam::{Mat4, Quat, Vec3};
 /// Game units a metre.
 pub const UNITS: f32 = 100.0;
 
-/// Where the race starts on Luigi Circuit (its first start point), at the floor the stage is laid on: the kart is
-/// put a little over it and settles onto it.
-pub const START: Vec3 = Vec3::new(-20915.0, 400.0, 30873.0);
+/// Where the race (a solo time trial on Luigi Circuit) puts the kart, at the floor the stage is laid on: the kart
+/// rests 26.7 units over it (measured: (-20115, 426.7, 25750) on a floor at 400).
+pub const START: Vec3 = Vec3::new(-20115.0, 400.0, 25750.0);
 
 /// A face is ground (driven on, turned to face up) when its normal is at least this much up.
 const GROUND_UP: f32 = 0.45;
