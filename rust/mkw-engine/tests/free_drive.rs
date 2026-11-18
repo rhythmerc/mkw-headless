@@ -26,6 +26,20 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
         ],
         ..Default::default()
     };
+    // (and a scanned room's worth of triangles: a fine floor mesh behind the start, 80 by 80 quads - its collision
+    // twice the course's own, which once overran the course's archive into the heap)
+    let mut stage = stage;
+    let (n, x0, x1, z0, z1) = (80, m(-30.0), m(-5.0), m(-30.0), m(30.0));
+    for i in 0..n {
+        for j in 0..n {
+            let x = |k: usize| x0 + (x1 - x0) * k as f32 / n as f32;
+            let z = |k: usize| z0 + (z1 - z0) * k as f32 / n as f32;
+            stage.room_quads.push([Vec3::new(x(i), 0.0, z(j)), Vec3::new(x(i), 0.0, z(j + 1)), Vec3::new(x(i + 1), 0.0, z(j + 1)), Vec3::new(x(i + 1), 0.0, z(j))]);
+        }
+    }
+    let kcl = mkw_engine::kcl::write(&mkw_engine::stage::Space::new(Vec3::ZERO, Vec3::X).triangles(&stage)).expect("a KCL");
+    eprintln!("the stage's collision: {} bytes", kcl.len());
+    assert!(kcl.len() > 519_012, "a collision bigger than the course's own (Luigi Circuit's, 519 012 bytes)");
     engine.place_player(PlacePlayer { point: Vec3::ZERO, forward: Vec3::X });
     assert_eq!(engine.set_stage(&stage), Applied::Done);
     let models = engine.models();
