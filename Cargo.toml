@@ -17,7 +17,6 @@ opt-level = 3
 [patch.crates-io]
 brres-sys = { path = "third_party/brres-sys" }
 
-# The engine contract's local checkout (a sibling of this repo), as the app builds it: its newest (Mode::Race,
-# ready_to_place) isn't published yet.
-[patch."https://github.com/rhythmerc/buildar-engine-core"]
-engine-core = { path = "../buildar-engine-core" }
+# The engine contract's local checkout (a sibling of this repo), to build against before it's published:
+# [patch."https://github.com/rhythmerc/buildar-engine-core"]
+# engine-core = { path = "../buildar-engine-core" }
