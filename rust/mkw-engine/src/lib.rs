@@ -27,3 +27,47 @@ pub const DATA: engine_core::GameFiles = engine_core::GameFiles {
         "with libmkw_engine.so) to Download/MKWii and import it here.",
     ],
 };
+
+/// Parts of the player's disc the engine never reads: the cutscene videos (1.8 GB of a 2.5 GB disc; the game boots and
+/// races without them).
+pub const UNUSED: &[&str] = &["files/thp"];
+
+/// The unused parts ([`UNUSED`]) removed from the player's copy of the disc at `disc`, to give their space back: the
+/// bytes freed.
+pub fn leave_out_unused(disc: &std::path::Path) -> std::io::Result<u64> {
+    let mut freed = 0;
+    for part in UNUSED {
+        let at = disc.join(part);
+        if !at.is_dir() {
+            continue;
+        }
+        freed += size_of(&at);
+        std::fs::remove_dir_all(&at)?;
+    }
+    Ok(freed)
+}
+
+fn size_of(path: &std::path::Path) -> u64 {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => std::fs::read_dir(path).into_iter().flatten().flatten().map(|e| size_of(&e.path())).sum(),
+        Ok(m) => m.len(),
+        Err(_) => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The videos go; the rest of the disc stays.
+    #[test]
+    fn the_unused_parts_are_left_out() {
+        let disc = std::env::temp_dir().join(format!("mkw-unused-{}", std::process::id()));
+        std::fs::create_dir_all(disc.join("files/thp/title")).unwrap();
+        std::fs::create_dir_all(disc.join("files/Race")).unwrap();
+        std::fs::write(disc.join("files/thp/title/title.thp"), vec![0u8; 1000]).unwrap();
+        std::fs::write(disc.join("files/Race/Common.szs"), b"kept").unwrap();
+        assert_eq!(super::leave_out_unused(&disc).unwrap(), 1000);
+        assert!(!disc.join("files/thp").exists() && disc.join("files/Race/Common.szs").exists());
+        assert_eq!(super::leave_out_unused(&disc).unwrap(), 0);
+        let _ = std::fs::remove_dir_all(disc);
+    }
+}
