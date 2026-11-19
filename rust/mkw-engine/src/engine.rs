@@ -262,6 +262,11 @@ impl EngineCore for Mkwii {
         self.put_down(place, kart);
     }
 
+    /// Once its race has loaded (on the game's own thread): a kart to put down.
+    fn ready_to_place(&self) -> bool {
+        self.wants_steps()
+    }
+
     /// Once the race has started (loading runs on the game's own thread).
     fn wants_steps(&self) -> bool {
         self.space.is_some() && self.game.racing()

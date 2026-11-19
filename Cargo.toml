@@ -16,3 +16,8 @@ opt-level = 3
 # (brres-sys with its C strings typed for arm64 too: third_party/brres-sys/BUILDAR.md)
 [patch.crates-io]
 brres-sys = { path = "third_party/brres-sys" }
+
+# The engine contract's local checkout (a sibling of this repo), as the app builds it: its newest (Mode::Race,
+# ready_to_place) isn't published yet.
+[patch."https://github.com/rhythmerc/buildar-engine-core"]
+engine-core = { path = "../buildar-engine-core" }

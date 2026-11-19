@@ -22,7 +22,7 @@ fn a_kart_put_down_while_the_race_loads_is_there_once_it_runs() {
     };
     // (no placement yet: the stage laid with the race's start at the origin, and the race loading)
     assert_eq!(engine.set_stage(&stage), Applied::Done);
-    assert!(!engine.wants_steps(), "still loading");
+    assert!(!engine.wants_steps() && !engine.ready_to_place(), "still loading");
     let spot = Vec3::new(m(8.0), 0.0, m(-6.0));
     engine.place_player(PlacePlayer { point: spot, forward: Vec3::X });
     let started = std::time::Instant::now();
@@ -30,6 +30,7 @@ fn a_kart_put_down_while_the_race_loads_is_there_once_it_runs() {
         assert!(started.elapsed().as_secs() < 120, "the race starts");
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+    assert!(engine.ready_to_place(), "the race loaded: a kart to put down");
     engine.set_input(&TouchState::default(), PadHeld::default());
     for _ in 0..60 {
         engine.step().expect("a frame");
