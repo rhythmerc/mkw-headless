@@ -51,6 +51,7 @@ type Read = unsafe extern "C" fn(u32, *mut u8, u32) -> c_int;
 type TakeAudio = unsafe extern "C" fn(*mut i16, u32) -> u32;
 type MuteSoundPlayers = unsafe extern "C" fn(u32);
 type SetDriftAutomatic = unsafe extern "C" fn(c_int);
+type SetKartTuning = unsafe extern "C" fn(f32, f32);
 
 /// Where the game's sound is taken from (`mkw_audio`): a function of the library, callable from any thread (the
 /// library keeps the mix behind a lock), so it goes to the runtime's sound thread.
@@ -78,6 +79,8 @@ pub struct Game {
     mute_sound_players: MuteSoundPlayers,
     /// (a library built before it: none - the game's own default, manual)
     set_drift_automatic: Option<SetDriftAutomatic>,
+    /// (a library built before it: none - the kart as the game has it)
+    set_kart_tuning: Option<SetKartTuning>,
     // (never unloaded: the game's threads run in it until the process ends)
     _library: std::mem::ManuallyDrop<libloading::Library>,
 }
@@ -105,6 +108,7 @@ impl Game {
                 take_audio: std::mem::transmute::<*const (), TakeAudio>(get(b"mkw_audio\0")?),
                 mute_sound_players: std::mem::transmute::<*const (), MuteSoundPlayers>(get(b"mkw_mute_sound_players\0")?),
                 set_drift_automatic: get(b"mkw_set_drift_automatic\0").ok().map(|f| std::mem::transmute::<*const (), SetDriftAutomatic>(f)),
+                set_kart_tuning: get(b"mkw_set_kart_tuning\0").ok().map(|f| std::mem::transmute::<*const (), SetKartTuning>(f)),
                 _library: std::mem::ManuallyDrop::new(library),
             })
         }
@@ -160,6 +164,15 @@ impl Game {
             // SAFETY: mkw_set_drift_automatic takes a flag; callable from any thread.
             unsafe { set(c_int::from(automatic)) }
         }
+    }
+
+    /// The local kart's top speed and acceleration, each a multiple of its own (1: as the game has them). Taken at the
+    /// next frame. False when the library can't (built before it).
+    pub fn set_kart_tuning(&self, speed: f32, acceleration: f32) -> bool {
+        let Some(set) = self.set_kart_tuning else { return false };
+        // SAFETY: mkw_set_kart_tuning takes two plain values; callable from any thread.
+        unsafe { set(speed, acceleration) };
+        true
     }
 
     /// The game's sound players kept silent, by bit (player 0's is bit 0).

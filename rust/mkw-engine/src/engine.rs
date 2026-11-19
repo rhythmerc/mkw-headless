@@ -23,6 +23,10 @@ pub const KART: engine_core::ModelId = 0;
 pub mod settings {
     /// The kart's drift: 0 manual (the default), 1 automatic.
     pub const DRIFT_AUTOMATIC: &str = "drift_automatic";
+    /// The kart's top speed, a multiple of its own (1: as the game has it).
+    pub const SPEED: &str = "speed";
+    /// The kart's acceleration, a multiple of its own (1: as the game has it).
+    pub const ACCELERATION: &str = "acceleration";
 }
 
 /// The kart's height drawn, Mario on it, and how far its position is over the ground (game units).
@@ -62,6 +66,8 @@ pub struct Mkwii {
     relocate_in: u32,
     posed: bool,
     cut: bool,
+    /// The kart's top speed and acceleration, multiples of its own ([`settings::SPEED`], [`settings::ACCELERATION`]).
+    tuning: (f32, f32),
 }
 
 impl Mkwii {
@@ -86,6 +92,7 @@ impl Mkwii {
             relocate_in: 0,
             posed: false,
             cut: true,
+            tuning: (1.0, 1.0),
         }
     }
 
@@ -214,8 +221,20 @@ impl EngineCore for Mkwii {
     }
 
     fn set_setting(&mut self, key: &str, value: f32) {
-        if key == settings::DRIFT_AUTOMATIC {
-            self.game.set_drift_automatic(value > 0.5);
+        match key {
+            settings::DRIFT_AUTOMATIC => self.game.set_drift_automatic(value > 0.5),
+            settings::SPEED | settings::ACCELERATION => {
+                let tuning = if key == settings::SPEED { (value, self.tuning.1) } else { (self.tuning.0, value) };
+                // (given to the game when it changes: the runtime gives its settings every frame)
+                if tuning == self.tuning {
+                    return;
+                }
+                self.tuning = tuning;
+                if !self.game.set_kart_tuning(tuning.0, tuning.1) {
+                    eprintln!("MKWii: this game library can't tune the kart (built before mkw_set_kart_tuning)");
+                }
+            }
+            _ => {}
         }
     }
 
