@@ -33,7 +33,7 @@ pub mod settings {
 }
 
 /// The kart's height drawn, Mario on it, and how far its position is over the ground (game units).
-const KART_HEIGHT: f32 = 150.0;
+pub(crate) const KART_HEIGHT: f32 = 150.0;
 const KART_RIDE: f32 = 26.7;
 
 /// The game made on the runtime's worker: the library at `library` (built from the player's disc), the extracted disc

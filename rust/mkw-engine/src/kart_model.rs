@@ -18,7 +18,7 @@
 use crate::szs;
 use engine_core::glam::{Mat4, Vec3, Vec4};
 use engine_core::hud::Rgba8;
-use engine_core::model::{AlphaMode, Lighting, MaterialDesc, MeshData};
+use engine_core::model::{AlphaMode, BodyGroup, Cast, Ellipse, GroupId, Lighting, MaterialDesc, MeshData, Point};
 use engine_core::{Model, ModelSource};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -89,8 +89,36 @@ pub fn build(files: &BTreeMap<String, Vec<u8>>) -> Result<KartModel, String> {
             }
         }
     }
-    let model = Model { source: ModelSource::Meshes { meshes, textures, joint_count: joints }, parents: Vec::new(), groups: Vec::new() };
+    let body = instances.iter().find(|i| i.file == "kart_model.brres" && i.model == "body");
+    let groups = body.and_then(|b| footprint(&meshes, b.joint)).into_iter().collect();
+    let model = Model { source: ModelSource::Meshes { meshes, textures, joint_count: joints }, parents: Vec::new(), groups };
     Ok(KartModel { model, instances, headers, joints })
+}
+
+/// The kart's body group: the one it casts its contact shadow as (Mario sits in it, under its shadow).
+pub const KART_BODY: GroupId = 0;
+
+/// The kart's contact shadow as a footprint of its body (`joint`, the body's: the meshes skinned to it): laid along
+/// its longer level side, back to front, from the body's bounds as its meshes give them - a soft one under all of it,
+/// and darker ones under its two axles, where its wheels meet the ground. In heights of the kart as drawn
+/// ([`crate::engine::KART_HEIGHT`]). None when no mesh is the body's.
+fn footprint(meshes: &[MeshData], joint: u16) -> Option<BodyGroup> {
+    let positions = meshes.iter().filter(|m| m.joints.first().is_some_and(|j| j[0] == joint)).flat_map(|m| m.positions.iter().map(|p| Vec3::from_array(*p)));
+    let (lo, hi) = positions.fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(p), hi.max(p)));
+    if lo.x > hi.x {
+        return None;
+    }
+    let size = hi - lo;
+    let (axis, length, width) = if size.z >= size.x { (Vec3::Z, size.z, size.x) } else { (Vec3::X, size.x, size.z) };
+    let middle = ((lo + hi) / 2.0).with_y(lo.y);
+    let end = |sign: f32| Point { joint, at: middle + axis * (length / 2.0 * sign) };
+    let (l, w) = (length / crate::engine::KART_HEIGHT, width / crate::engine::KART_HEIGHT);
+    let ellipses = vec![
+        Ellipse { along: 0.0, half_length: 0.5 * l, half_width: 0.5 * w, dark: 0.45 },
+        Ellipse { along: 0.32 * l, half_length: 0.1 * l, half_width: 0.5 * w, dark: 0.5 },
+        Ellipse { along: -0.32 * l, half_length: 0.1 * l, half_width: 0.5 * w, dark: 0.5 },
+    ];
+    Some(BodyGroup { id: KART_BODY, joints: vec![joint], cast: Cast::Footprint { back: end(-1.0), front: end(1.0), ellipses } })
 }
 
 /// Each MDL0's name (one of `names`: found from the header's name offset, whichever field it is) and its header.
@@ -619,6 +647,15 @@ mod tests {
         let kart = build(&files).expect("the kart");
         let names: Vec<_> = kart.instances.iter().map(|i| i.model.as_str()).collect();
         assert_eq!(names, ["body", "tire_fl", "tire_fl", "tire_fr", "tire_fr", "model"]);
+        // (its shadow: the body's footprint, along its length, about as long as the kart and as wide)
+        let [BodyGroup { id: KART_BODY, joints, cast: Cast::Footprint { back, front, ellipses } }] = &kart.model.groups[..] else {
+            panic!("the body's footprint: {:?}", kart.model.groups)
+        };
+        assert_eq!((joints.as_slice(), back.joint, front.joint), (&[0u16][..], 0, 0));
+        let long = back.at.distance(front.at);
+        eprintln!("the body's footprint: from {} to {} ({long:.0} long), ellipses {ellipses:?}", back.at, front.at);
+        assert!((100.0..300.0).contains(&long), "a kart's length: {long}");
+        assert!(ellipses[0].half_width > 0.2 && ellipses[0].half_width < ellipses[0].half_length);
         assert_eq!(kart.joints, 1 + 4 + 15);
         assert_eq!(kart.headers.len(), 4, "body, the two tires and Mario: {:?}", kart.headers.iter().map(|h| &h.1).collect::<Vec<_>>());
         let ModelSource::Meshes { meshes, textures, .. } = &kart.model.source else { panic!() };
