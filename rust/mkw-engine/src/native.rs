@@ -154,7 +154,6 @@ impl Game {
         AudioTap(self.take_audio)
     }
 
-    /// The game's sound players kept silent, by bit (player 0's is bit 0).
     /// The local kart's drift: manual (hop and steer to drift, mini-turbos) or automatic. Taken at the next frame.
     pub fn set_drift_automatic(&self, automatic: bool) {
         if let Some(set) = self.set_drift_automatic {
@@ -163,6 +162,7 @@ impl Game {
         }
     }
 
+    /// The game's sound players kept silent, by bit (player 0's is bit 0).
     pub fn mute_sound_players(&self, mask: u32) {
         // SAFETY: a plain value.
         unsafe { (self.mute_sound_players)(mask) }

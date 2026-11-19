@@ -48,6 +48,8 @@ pub struct Mkwii {
     space: Option<Space>,
     stage: Option<Stage>,
     place: Option<PlacePlayer>,
+    /// A placement asked once the stage was laid but before the kart was there: made at the first frame it is.
+    place_waiting: bool,
     pad: Pad,
     kart: Option<Kart>,
     model: Option<Model>,
@@ -74,6 +76,7 @@ impl Mkwii {
             space: None,
             stage: None,
             place: None,
+            place_waiting: false,
             pad: Pad::default(),
             kart: None,
             model,
@@ -123,6 +126,16 @@ impl Mkwii {
 }
 
 impl Mkwii {
+    /// The stage laid again under `kart`, so that it is where `place` puts it, facing that way.
+    fn put_down(&mut self, place: PlacePlayer, kart: Kart) {
+        let m = &kart.matrix;
+        let floor = Vec3::from_array(kart.position) - Vec3::Y * KART_RIDE;
+        let forward = Vec3::new(m[2], m[6], m[10]);
+        self.space = Some(Space::at(place.point, place.forward, floor, forward));
+        self.cut = true;
+        self.lay();
+    }
+
     /// The stage as the course's collision, laid in the space it is in now.
     fn lay(&mut self) {
         let (Some(space), Some(stage)) = (self.space, self.stage.as_ref()) else { return };
@@ -237,13 +250,12 @@ impl EngineCore for Mkwii {
     /// where it was put down, facing that way (the world moves, not the kart).
     fn place_player(&mut self, place: PlacePlayer) {
         self.place = Some(place);
-        let Some(kart) = self.kart else { return };
-        let m = &kart.matrix;
-        let floor = Vec3::from_array(kart.position) - Vec3::Y * KART_RIDE;
-        let forward = Vec3::new(m[2], m[6], m[10]);
-        self.space = Some(Space::at(place.point, place.forward, floor, forward));
-        self.cut = true;
-        self.lay();
+        let Some(kart) = self.kart else {
+            // (the race still loading: laid under the kart once it is there)
+            self.place_waiting = self.space.is_some();
+            return;
+        };
+        self.put_down(place, kart);
     }
 
     /// Once the race has started (loading runs on the game's own thread).
@@ -254,6 +266,11 @@ impl EngineCore for Mkwii {
     fn step(&mut self) -> Result<(), String> {
         self.game.step(&self.pad)?;
         if let Some(kart) = self.game.kart() {
+            if std::mem::take(&mut self.place_waiting)
+                && let Some(place) = self.place
+            {
+                self.put_down(place, kart);
+            }
             self.pose_look(&kart);
             self.kart = Some(kart);
             self.posed = true;
