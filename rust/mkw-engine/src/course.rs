@@ -14,8 +14,13 @@ use std::path::{Path, PathBuf};
 /// The course the race loads (its course id 0x08: Luigi Circuit's slot), its path on the disc.
 pub const REPLACES: &str = "Race/Course/beginner_course.szs";
 
-/// Where the kart starts, at the floor the stage is laid on (game units): the course's middle.
-pub const START: Vec3 = Vec3::ZERO;
+/// Where the kart starts, at the floor the stage is laid on (game units): the course's middle, high up. The race sends a
+/// kart below the game's height 0 out of bounds (Kart::Collision::UpdateRespawn: Lakitu comes for it), as a disc's
+/// courses are all above it; the stage is laid so the place the player is put down is here, so anything of the room
+/// under it - the floor under a table - is too: 1 km over 0 (at the largest world scale, 60 m of the room).
+pub const START: Vec3 = Vec3::new(0.0, LIFT, 0.0);
+/// The start's height over the game's 0 (game units).
+const LIFT: f32 = 100_000.0;
 /// The start point's height over that floor: the kart is put there and falls to the floor as the race loads.
 const START_DROP: f32 = 70.0;
 
