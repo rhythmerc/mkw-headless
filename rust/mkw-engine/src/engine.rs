@@ -27,6 +27,9 @@ pub mod settings {
     pub const SPEED: &str = "speed";
     /// The kart's acceleration, a multiple of its own (1: as the game has it).
     pub const ACCELERATION: &str = "acceleration";
+    /// The right trigger as an analog throttle: 1 (the default), how far it is pulled caps the kart's top speed; 0,
+    /// all or nothing as the game has it.
+    pub const ANALOG_THROTTLE: &str = "analog_throttle";
 }
 
 /// The kart's height drawn, Mario on it, and how far its position is over the ground (game units).
@@ -68,6 +71,11 @@ pub struct Mkwii {
     cut: bool,
     /// The kart's top speed and acceleration, multiples of its own ([`settings::SPEED`], [`settings::ACCELERATION`]).
     tuning: (f32, f32),
+    /// The right trigger as an analog throttle ([`settings::ANALOG_THROTTLE`]); the throttle it asks for, and the one
+    /// last given (eased down to it, as the kart would coast: `ease_throttle`).
+    analog: bool,
+    throttle_wanted: f32,
+    throttle: f32,
 }
 
 impl Mkwii {
@@ -93,6 +101,9 @@ impl Mkwii {
             posed: false,
             cut: true,
             tuning: (1.0, 1.0),
+            analog: true,
+            throttle_wanted: 1.0,
+            throttle: 1.0,
         }
     }
 
@@ -159,9 +170,34 @@ impl Mkwii {
 /// Not mapped: the item (L; the time trial's three mushrooms, used whenever the left grip was held - the controller
 /// held is often gripped - and taken for boosts out of nowhere) and Start (the menu button opened the app's menu and
 /// paused the game too, which then waited for A to go on).
+/// The right trigger as an analog throttle: past its dead zone the kart accelerates, its top speed capped from a
+/// tenth of its own at a touch to all of it near a full pull; let go (or A, all the way), the game's own.
+pub fn throttle(touch: &TouchState) -> f32 {
+    if touch.a || touch.right_trigger <= THROTTLE_DEAD {
+        return 1.0;
+    }
+    let pulled = ((touch.right_trigger - THROTTLE_DEAD) / (THROTTLE_FULL - THROTTLE_DEAD)).clamp(0.0, 1.0);
+    THROTTLE_LEAST + (1.0 - THROTTLE_LEAST) * pulled
+}
+
+/// The throttle given this frame, from last frame's and the one wanted: up at once; down no faster than the kart
+/// slows when it coasts (a lower cap brakes the kart down to it - eased off, it slows as if let go, not harder).
+pub fn ease_throttle(last: f32, wanted: f32) -> f32 {
+    if wanted >= last { wanted } else { wanted.max(last * THROTTLE_COAST) }
+}
+
+/// How much of its speed the kart keeps a frame as it coasts (measured: the trigger let go at full speed).
+const THROTTLE_COAST: f32 = 0.98;
+
+/// The right trigger's dead zone, where it is all the way, and the least top speed a touch past the dead zone gives.
+const THROTTLE_DEAD: f32 = 0.05;
+const THROTTLE_FULL: f32 = 0.95;
+const THROTTLE_LEAST: f32 = 0.1;
+
 pub fn pad(touch: &TouchState) -> Pad {
     let mut buttons = 0;
-    if touch.right_trigger > 0.3 || touch.a {
+    // (past the throttle's dead zone: an analog throttle caps the speed by how far it is pulled - `throttle`)
+    if touch.right_trigger > THROTTLE_DEAD || touch.a {
         buttons |= button::A;
     }
     if touch.left_trigger > 0.3 || touch.b {
@@ -223,6 +259,7 @@ impl EngineCore for Mkwii {
     fn set_setting(&mut self, key: &str, value: f32) {
         match key {
             settings::DRIFT_AUTOMATIC => self.game.set_drift_automatic(value > 0.5),
+            settings::ANALOG_THROTTLE => self.analog = value > 0.5,
             settings::SPEED | settings::ACCELERATION => {
                 let tuning = if key == settings::SPEED { (value, self.tuning.1) } else { (self.tuning.0, value) };
                 // (given to the game when it changes: the runtime gives its settings every frame)
@@ -240,6 +277,7 @@ impl EngineCore for Mkwii {
 
     fn set_input(&mut self, touch: &TouchState, held: PadHeld) {
         self.pad = if held.held { Pad::default() } else { pad(touch) };
+        self.throttle_wanted = if self.analog && !held.held { throttle(touch) } else { 1.0 };
     }
 
     /// The first stage, laid where the player is put down (else its origin), as the course's collision; then the race
@@ -292,6 +330,11 @@ impl EngineCore for Mkwii {
     }
 
     fn step(&mut self) -> Result<(), String> {
+        let eased = ease_throttle(self.throttle, self.throttle_wanted);
+        if eased != self.throttle {
+            self.throttle = eased;
+            self.game.set_throttle(eased);
+        }
         self.game.step(&self.pad)?;
         if let Some(kart) = self.game.kart() {
             if std::mem::take(&mut self.place_waiting)
@@ -359,6 +402,34 @@ mod tests {
         // (the left grip held and the menu button pressed: no item, no pause)
         let p = pad(&TouchState { left_grip: 1.0, menu: true, ..Default::default() });
         assert_eq!(p, Pad::default());
+    }
+
+    /// The trigger past its dead zone accelerates, its top speed by how far it's pulled: a tenth at a touch, all of
+    /// it near a full pull, in between in proportion; let go or A, the game's own.
+    #[test]
+    fn the_trigger_is_an_analog_throttle() {
+        let at = |t: f32| throttle(&TouchState { right_trigger: t, ..Default::default() });
+        assert_eq!(at(0.0), 1.0);
+        assert_eq!(pad(&TouchState { right_trigger: 0.04, ..Default::default() }).buttons & button::A, 0);
+        assert_ne!(pad(&TouchState { right_trigger: 0.06, ..Default::default() }).buttons & button::A, 0);
+        assert!((at(0.06) - THROTTLE_LEAST).abs() < 0.02);
+        assert!((at(0.5) - 0.55).abs() < 0.01, "{}", at(0.5));
+        assert_eq!((at(0.95), at(1.0)), (1.0, 1.0));
+        assert_eq!(throttle(&TouchState { right_trigger: 0.3, a: true, ..Default::default() }), 1.0);
+        assert!((2..95).all(|i| at(0.05 + i as f32 / 100.0) >= at(0.05 + (i - 1) as f32 / 100.0)), "it rises with the pull");
+    }
+
+    /// Pulled harder: at once; eased off: down as the kart coasts, a frame at a time, to what's wanted.
+    #[test]
+    fn the_throttle_eases_down_as_the_kart_coasts() {
+        assert_eq!(ease_throttle(0.4, 0.9), 0.9);
+        assert_eq!(ease_throttle(1.0, 0.5), THROTTLE_COAST);
+        let mut t = 1.0;
+        let frames = (0..200).take_while(|_| {
+            t = ease_throttle(t, 0.5);
+            t > 0.5
+        });
+        assert!((30..40).contains(&frames.count()), "half way in about half a second");
     }
 
     #[test]

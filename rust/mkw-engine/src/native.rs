@@ -52,6 +52,7 @@ type TakeAudio = unsafe extern "C" fn(*mut i16, u32) -> u32;
 type MuteSoundPlayers = unsafe extern "C" fn(u32);
 type SetDriftAutomatic = unsafe extern "C" fn(c_int);
 type SetKartTuning = unsafe extern "C" fn(f32, f32);
+type SetThrottle = unsafe extern "C" fn(f32);
 
 /// Where the game's sound is taken from (`mkw_audio`): a function of the library, callable from any thread (the
 /// library keeps the mix behind a lock), so it goes to the runtime's sound thread.
@@ -81,6 +82,8 @@ pub struct Game {
     set_drift_automatic: Option<SetDriftAutomatic>,
     /// (a library built before it: none - the kart as the game has it)
     set_kart_tuning: Option<SetKartTuning>,
+    /// (likewise: the game's own all-or-nothing accelerator)
+    set_throttle: Option<SetThrottle>,
     // (never unloaded: the game's threads run in it until the process ends)
     _library: std::mem::ManuallyDrop<libloading::Library>,
 }
@@ -109,6 +112,7 @@ impl Game {
                 mute_sound_players: std::mem::transmute::<*const (), MuteSoundPlayers>(get(b"mkw_mute_sound_players\0")?),
                 set_drift_automatic: get(b"mkw_set_drift_automatic\0").ok().map(|f| std::mem::transmute::<*const (), SetDriftAutomatic>(f)),
                 set_kart_tuning: get(b"mkw_set_kart_tuning\0").ok().map(|f| std::mem::transmute::<*const (), SetKartTuning>(f)),
+                set_throttle: get(b"mkw_set_throttle\0").ok().map(|f| std::mem::transmute::<*const (), SetThrottle>(f)),
                 _library: std::mem::ManuallyDrop::new(library),
             })
         }
@@ -173,6 +177,15 @@ impl Game {
         // SAFETY: mkw_set_kart_tuning takes two plain values; callable from any thread.
         unsafe { set(speed, acceleration) };
         true
+    }
+
+    /// How far the accelerator is down (0.05..1: the kart's top speed that share of its own while it accelerates; 1 the
+    /// game's own). Taken at the next frame.
+    pub fn set_throttle(&self, throttle: f32) {
+        if let Some(set) = self.set_throttle {
+            // SAFETY: a plain value; callable from any thread.
+            unsafe { set(throttle) }
+        }
     }
 
     /// The game's sound players kept silent, by bit (player 0's is bit 0).

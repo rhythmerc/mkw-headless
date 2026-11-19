@@ -8,8 +8,13 @@ use engine_core::{EngineCore, PadHeld, PlacePlayer, Stage, TouchState};
 use mkw_engine::engine::settings;
 use std::path::PathBuf;
 
-/// A run's speeds, each frame (the game's metres a frame, as the stage has them).
+/// A run's speeds, each frame (the game's metres a frame, as the stage has them), the trigger pulled all the way.
 fn run(engine: &mut Box<dyn EngineCore>, speed: f32, acceleration: f32) -> Vec<f32> {
+    run_pulled(engine, speed, acceleration, 1.0)
+}
+
+/// Likewise, the trigger pulled `trigger` of the way (an analog throttle, by default).
+fn run_pulled(engine: &mut Box<dyn EngineCore>, speed: f32, acceleration: f32, trigger: f32) -> Vec<f32> {
     engine.set_setting(settings::SPEED, speed);
     engine.set_setting(settings::ACCELERATION, acceleration);
     engine.place_player(PlacePlayer { point: Vec3::ZERO, forward: Vec3::X });
@@ -18,7 +23,7 @@ fn run(engine: &mut Box<dyn EngineCore>, speed: f32, acceleration: f32) -> Vec<f
     for _ in 0..90 {
         engine.step().expect("a frame");
     }
-    let drive = TouchState { right_trigger: 1.0, ..Default::default() };
+    let drive = TouchState { right_trigger: trigger, ..Default::default() };
     engine.set_input(&drive, PadHeld::default());
     let mut last = engine.focus().expect("the kart").feet;
     let mut speeds = Vec::new();
@@ -29,6 +34,23 @@ fn run(engine: &mut Box<dyn EngineCore>, speed: f32, acceleration: f32) -> Vec<f
         last = now;
     }
     speeds
+}
+
+/// Full speed, then the trigger eased to `to` of the way for three seconds: its speeds then.
+fn ease_off(engine: &mut Box<dyn EngineCore>, to: f32) -> Vec<f32> {
+    let full = run(engine, 1.0, 1.0);
+    assert!(!full.is_empty());
+    engine.set_input(&TouchState { right_trigger: to, ..Default::default() }, PadHeld::default());
+    let mut last = engine.focus().expect("the kart").feet;
+    (0..180)
+        .map(|_| {
+            engine.step().expect("a frame");
+            let now = engine.focus().expect("the kart").feet;
+            let speed = (now - last).length();
+            last = now;
+            speed
+        })
+        .collect()
 }
 
 #[test]
@@ -62,7 +84,14 @@ fn the_karts_top_speed_and_acceleration_are_tuned() {
     let faster = run(&mut engine, 1.5, 1.0);
     let quicker = run(&mut engine, 1.0, 2.0);
     let again = run(&mut engine, 1.0, 1.0);
-    for (name, s) in [("own", &own), ("speed x1.5", &faster), ("acceleration x2", &quicker), ("own again", &again)] {
+    // (the trigger half way: a little over half the top speed - mkw_engine::engine::throttle)
+    let half = run_pulled(&mut engine, 1.0, 1.0, 0.5);
+    let half_tuned = run_pulled(&mut engine, 1.5, 1.0, 0.5);
+    let eased = ease_off(&mut engine, 0.5);
+    let coasting = ease_off(&mut engine, 0.0);
+    eprintln!("let go: {:?}", &coasting[..12]);
+    eprintln!("eased to half: {:?}, {:.4} after 0.5 s, {:.4} after 3 s", &eased[..12], eased[30], top(&eased));
+    for (name, s) in [("own", &own), ("speed x1.5", &faster), ("acceleration x2", &quicker), ("own again", &again), ("half trigger", &half), ("half, x1.5", &half_tuned)] {
         eprintln!("{name:>16}: after 0.5 s {:.4}, top {:.4} (a frame)", early(s), top(s));
     }
     assert!(top(&own) > 0.0, "it drives");
@@ -72,4 +101,9 @@ fn the_karts_top_speed_and_acceleration_are_tuned() {
     assert!((top(&quicker) / top(&own) - 1.0).abs() < 0.05, "the same top speed with more acceleration");
     assert!((top(&again) / top(&own) - 1.0).abs() < 0.02, "back as the game has it");
     assert!((early(&again) / early(&own) - 1.0).abs() < 0.05, "and as quick off the line");
+    let share = mkw_engine::engine::throttle(&TouchState { right_trigger: 0.5, ..Default::default() });
+    let half_ratio = top(&half) / top(&own);
+    assert!((half_ratio - share).abs() < 0.05, "half the trigger: {half_ratio:.3} of the top speed, not {share:.3}");
+    assert!((top(&half_tuned) / top(&own) - 1.5 * share).abs() < 0.08, "with the speed tuned too");
+    assert!((top(&eased) / top(&own) - share).abs() < 0.05, "eased off from full speed: down to the half trigger's {:.3}", top(&eased) / top(&own));
 }
