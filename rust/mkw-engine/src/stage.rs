@@ -1,7 +1,7 @@
 //! The stage as the course's collision, and the contract's space as the game's.
 //!
-//! The race is a solo time trial on Luigi Circuit, its course swapped for the stage (the game's start stays where the
-//! course has it):
+//! The race is a solo race on buildAR's own course (`crate::course`: empty but for its start), its collision swapped for
+//! the stage's:
 //! the stage is laid so the place the player is put down (at its height: the floor, a table) is at the course's start,
 //! facing the way the race starts (the game's -z), the room [`UNITS`] game units a metre (toy-sized karts).
 use crate::kcl::{self, Triangle};
@@ -12,9 +12,9 @@ use engine_core::glam::{Mat4, Quat, Vec3};
 /// the runtime's world scale (the app's default for Mario Kart Wii: 8 game metres a real one, a toy).
 pub const UNITS: f32 = 100.0;
 
-/// Where the race (a solo time trial on Luigi Circuit) puts the kart, at the floor the stage is laid on: the kart
-/// rests 26.7 units over it (measured: (-20115, 426.7, 25750) on a floor at 400).
-pub const START: Vec3 = Vec3::new(-20115.0, 400.0, 25750.0);
+/// Where the race puts the kart, at the floor the stage is laid on: buildAR's own course's start
+/// ([`crate::course::START`]); the kart rests 26.7 units over it.
+pub const START: Vec3 = crate::course::START;
 
 /// A face is ground (driven on, turned to face up) when its normal is at least this much up.
 const GROUND_UP: f32 = 0.45;

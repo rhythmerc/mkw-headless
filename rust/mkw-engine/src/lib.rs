@@ -6,7 +6,9 @@
 //! - [`native`]: the game library, loaded.
 //! - [`stage`]: the stage as the course's collision, and the contract's space as the game's.
 //! - [`szs`]: the game's archives (Yaz0, U8).
+//! - [`course`]: buildAR's own course, empty, in place of the disc's.
 //! - [`engine`]: the game as the runtime drives it ([`engine_core::EngineCore`]): free driving on the stage.
+pub mod course;
 pub mod engine;
 pub mod kcl;
 pub mod native;
@@ -29,8 +31,8 @@ pub const DATA: engine_core::GameFiles = engine_core::GameFiles {
 };
 
 /// Parts of the player's disc the engine never reads: the cutscene videos (1.8 GB of a 2.5 GB disc; the game boots and
-/// races without them).
-pub const UNUSED: &[&str] = &["files/thp"];
+/// races without them) and the courses (167 MB: the race is on buildAR's own, [`course`]).
+pub const UNUSED: &[&str] = &["files/thp", "files/Race/Course"];
 
 /// The unused parts ([`UNUSED`]) removed from the player's copy of the disc at `disc`, to give their space back: the
 /// bytes freed.

@@ -1,5 +1,5 @@
 //! The game as the runtime drives it ([`engine_core::EngineCore`]): free driving on the stage. The race is a 1P race on
-//! Luigi Circuit with its course's collision swapped for the stage's ([`crate::stage`]), booted once the stage is in
+//! buildAR's own empty course (`crate::course`) with its collision swapped for the stage's ([`crate::stage`]), booted once the stage is in
 //! (the course's collision is read as the race loads), and stepped a frame (1/60 s) at a time once the race has
 //! started. The kart is drawn with the game's own models, posed by the game's own matrices ([`crate::kart_model`]);
 //! a box stands in when the disc's kart can't be read.
@@ -240,6 +240,10 @@ impl EngineCore for Mkwii {
         let space = self.place.map_or(Space::new(Vec3::ZERO, Vec3::NEG_Z), |p| Space::new(p.point, p.forward));
         self.space = Some(space);
         self.lay();
+        // (buildAR's own course in place of the disc's)
+        if let Err(e) = crate::course::overlay(&self.data) {
+            eprintln!("MKWii: buildAR's course not written ({e}): the race has no course to load");
+        }
         if let Err(e) = self.game.boot(&self.disc, &self.data) {
             eprintln!("MKWii: {e}");
         }

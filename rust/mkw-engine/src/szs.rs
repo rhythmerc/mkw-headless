@@ -81,3 +81,117 @@ pub fn u8_files(data: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
 pub fn read(data: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
     u8_files(&yaz0(data)?)
 }
+
+/// `data` as a Yaz0 stream, uncompressed (every byte a literal: what the game reads, a little larger).
+pub fn yaz0_store(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16 + data.len() + data.len() / 8 + 1);
+    out.extend_from_slice(b"Yaz0");
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(&[0; 8]);
+    for chunk in data.chunks(8) {
+        out.push(0xFF);
+        out.extend_from_slice(chunk);
+    }
+    out
+}
+
+/// A U8 archive of `files` (paths as [`u8_files`] reads them back), laid out as the game's own: a nameless root, a
+/// `.` folder holding everything, each folder's files then its folders, the data 32-byte aligned.
+pub fn u8_archive(files: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+    // (the tree: each folder's files and subfolders)
+    #[derive(Default)]
+    struct Folder<'a> {
+        files: BTreeMap<&'a str, &'a [u8]>,
+        folders: BTreeMap<&'a str, Folder<'a>>,
+    }
+    let mut root = Folder::default();
+    for (path, data) in files {
+        let mut parts: Vec<&str> = path.split('/').collect();
+        let name = parts.pop().unwrap();
+        let mut folder = &mut root;
+        for part in parts {
+            folder = folder.folders.entry(part).or_default();
+        }
+        folder.files.insert(name, data);
+    }
+    // Nodes: (is a folder, name, parent or data index, past-the-end or size).
+    struct Node<'a> {
+        folder: bool,
+        name: &'a str,
+        a: usize,
+        b: usize,
+        data: Option<&'a [u8]>,
+    }
+    fn walk<'a>(folder: &Folder<'a>, name: &'a str, parent: usize, nodes: &mut Vec<Node<'a>>) {
+        let me = nodes.len();
+        nodes.push(Node { folder: true, name, a: parent, b: 0, data: None });
+        for (name, data) in &folder.files {
+            nodes.push(Node { folder: false, name, a: 0, b: data.len(), data: Some(data) });
+        }
+        for (name, sub) in &folder.folders {
+            walk(sub, name, me, nodes);
+        }
+        nodes[me].b = nodes.len();
+    }
+    let mut nodes = Vec::new();
+    nodes.push(Node { folder: true, name: "", a: 0, b: 0, data: None });
+    walk(&root, ".", 0, &mut nodes);
+    nodes[0].b = nodes.len();
+    let mut names = Vec::new();
+    let mut name_at = Vec::new();
+    for n in &nodes {
+        name_at.push(names.len());
+        names.extend_from_slice(n.name.as_bytes());
+        names.push(0);
+    }
+    let header = nodes.len() * 12 + names.len();
+    let align = |n: usize| n.div_ceil(32) * 32;
+    let mut at = align(0x20 + header);
+    let data_start = at;
+    let mut offsets = Vec::new();
+    for n in &nodes {
+        offsets.push(at);
+        if let Some(d) = n.data {
+            at = align(at + d.len());
+        }
+    }
+    let mut out = vec![0u8; at];
+    out[..4].copy_from_slice(&[0x55, 0xAA, 0x38, 0x2D]);
+    out[4..8].copy_from_slice(&0x20u32.to_be_bytes());
+    out[8..12].copy_from_slice(&(header as u32).to_be_bytes());
+    out[12..16].copy_from_slice(&(data_start as u32).to_be_bytes());
+    for (k, n) in nodes.iter().enumerate() {
+        let at = 0x20 + k * 12;
+        let word0 = (u32::from(n.folder) << 24) | name_at[k] as u32;
+        let a = if n.folder { n.a } else { offsets[k] };
+        out[at..at + 4].copy_from_slice(&word0.to_be_bytes());
+        out[at + 4..at + 8].copy_from_slice(&(a as u32).to_be_bytes());
+        out[at + 8..at + 12].copy_from_slice(&(n.b as u32).to_be_bytes());
+        if let Some(d) = n.data {
+            out[offsets[k]..offsets[k] + d.len()].copy_from_slice(d);
+        }
+    }
+    let names_at = 0x20 + nodes.len() * 12;
+    out[names_at..names_at + names.len()].copy_from_slice(&names);
+    out
+}
+
+/// `files` as an `.szs` archive.
+pub fn write(files: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+    yaz0_store(&u8_archive(files))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Written and read back: the same files, nested folders too.
+    #[test]
+    fn an_archive_reads_back_as_written() {
+        let mut files = BTreeMap::new();
+        files.insert("course.kmp".to_string(), vec![1, 2, 3]);
+        files.insert("course.kcl".to_string(), (0..100u8).collect());
+        files.insert("posteffect/posteffect.blight".to_string(), vec![9; 40]);
+        assert_eq!(read(&write(&files)).unwrap(), files);
+    }
+}
