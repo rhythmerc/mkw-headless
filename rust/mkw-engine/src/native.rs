@@ -50,6 +50,7 @@ type SetCourseKcl = unsafe extern "C" fn(*const u8, u32);
 type Read = unsafe extern "C" fn(u32, *mut u8, u32) -> c_int;
 type TakeAudio = unsafe extern "C" fn(*mut i16, u32) -> u32;
 type MuteSoundPlayers = unsafe extern "C" fn(u32);
+type SetDriftAutomatic = unsafe extern "C" fn(c_int);
 
 /// Where the game's sound is taken from (`mkw_audio`): a function of the library, callable from any thread (the
 /// library keeps the mix behind a lock), so it goes to the runtime's sound thread.
@@ -75,6 +76,8 @@ pub struct Game {
     read: Read,
     take_audio: TakeAudio,
     mute_sound_players: MuteSoundPlayers,
+    /// (a library built before it: none - the game's own default, manual)
+    set_drift_automatic: Option<SetDriftAutomatic>,
     // (never unloaded: the game's threads run in it until the process ends)
     _library: std::mem::ManuallyDrop<libloading::Library>,
 }
@@ -101,6 +104,7 @@ impl Game {
                 read: std::mem::transmute::<*const (), Read>(get(b"mkw_read\0")?),
                 take_audio: std::mem::transmute::<*const (), TakeAudio>(get(b"mkw_audio\0")?),
                 mute_sound_players: std::mem::transmute::<*const (), MuteSoundPlayers>(get(b"mkw_mute_sound_players\0")?),
+                set_drift_automatic: get(b"mkw_set_drift_automatic\0").ok().map(|f| std::mem::transmute::<*const (), SetDriftAutomatic>(f)),
                 _library: std::mem::ManuallyDrop::new(library),
             })
         }
@@ -151,6 +155,14 @@ impl Game {
     }
 
     /// The game's sound players kept silent, by bit (player 0's is bit 0).
+    /// The local kart's drift: manual (hop and steer to drift, mini-turbos) or automatic. Taken at the next frame.
+    pub fn set_drift_automatic(&self, automatic: bool) {
+        if let Some(set) = self.set_drift_automatic {
+            // SAFETY: mkw_set_drift_automatic takes a flag; callable from any thread.
+            unsafe { set(c_int::from(automatic)) }
+        }
+    }
+
     pub fn mute_sound_players(&self, mask: u32) {
         // SAFETY: a plain value.
         unsafe { (self.mute_sound_players)(mask) }

@@ -19,6 +19,12 @@ use std::time::Duration;
 /// Its one model, the kart.
 pub const KART: engine_core::ModelId = 0;
 
+/// Its settings ([`EngineCore::set_setting`]).
+pub mod settings {
+    /// The kart's drift: 0 manual (the default), 1 automatic.
+    pub const DRIFT_AUTOMATIC: &str = "drift_automatic";
+}
+
 /// The kart's height drawn, Mario on it, and how far its position is over the ground (game units).
 const KART_HEIGHT: f32 = 150.0;
 const KART_RIDE: f32 = 26.7;
@@ -128,7 +134,11 @@ impl Mkwii {
 }
 
 /// The Touch controllers as the GameCube pad: the right trigger (or A) drives, the left trigger (or B) brakes and
-/// reverses, the right grip drifts (hops), the left grip uses an item, the left stick steers (and tricks).
+/// reverses, the right grip drifts (hops), the left stick steers (and tricks).
+///
+/// Not mapped: the item (L; the time trial's three mushrooms, used whenever the left grip was held - the controller
+/// held is often gripped - and taken for boosts out of nowhere) and Start (the menu button opened the app's menu and
+/// paused the game too, which then waited for A to go on).
 pub fn pad(touch: &TouchState) -> Pad {
     let mut buttons = 0;
     if touch.right_trigger > 0.3 || touch.a {
@@ -140,12 +150,6 @@ pub fn pad(touch: &TouchState) -> Pad {
     if touch.right_grip > 0.5 {
         buttons |= button::R;
     }
-    if touch.left_grip > 0.5 {
-        buttons |= button::L;
-    }
-    if touch.menu {
-        buttons |= button::START;
-    }
     let axis = |v: f32| (v.clamp(-1.0, 1.0) * 127.0).round() as i8;
     Pad {
         buttons,
@@ -153,7 +157,7 @@ pub fn pad(touch: &TouchState) -> Pad {
         stick_y: axis(touch.left_stick[1]),
         substick_x: axis(touch.right_stick[0]),
         substick_y: axis(touch.right_stick[1]),
-        trigger_l: if buttons & button::L != 0 { 255 } else { 0 },
+        trigger_l: 0,
         trigger_r: if buttons & button::R != 0 { 255 } else { 0 },
     }
 }
@@ -194,6 +198,12 @@ fn stand_in() -> Model {
 impl EngineCore for Mkwii {
     fn period(&self) -> Duration {
         Duration::from_secs_f64(1.0 / 60.0)
+    }
+
+    fn set_setting(&mut self, key: &str, value: f32) {
+        if key == settings::DRIFT_AUTOMATIC {
+            self.game.set_drift_automatic(value > 0.5);
+        }
     }
 
     fn set_input(&mut self, touch: &TouchState, held: PadHeld) {
@@ -301,6 +311,9 @@ mod tests {
         assert_eq!(p.buttons, button::A | button::R);
         assert_eq!((p.stick_x, p.stick_y, p.trigger_r), (-127, 32, 255));
         assert_eq!(pad(&TouchState::default()), Pad::default());
+        // (the left grip held and the menu button pressed: no item, no pause)
+        let p = pad(&TouchState { left_grip: 1.0, menu: true, ..Default::default() });
+        assert_eq!(p, Pad::default());
     }
 
     #[test]

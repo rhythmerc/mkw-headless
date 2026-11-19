@@ -61,12 +61,12 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
     };
     let (mut at_rest, mut driving) = (None, None);
     for frame in 0..1500 {
-        // (the countdown first, about four seconds: then the trigger)
-        engine.set_input(if frame > 240 { &drive } else { &idle }, PadHeld::default());
+        // (no intro and no countdown in the solo race: the trigger from frame 20)
+        engine.set_input(if frame > 20 { &drive } else { &idle }, PadHeld::default());
         engine.step().expect("a frame");
         let focus = engine.focus().expect("the kart");
         track.push(focus.feet);
-        if frame == 200 {
+        if frame == 10 {
             at_rest = parts(&mut engine);
         }
         if frame == 650 {
@@ -95,7 +95,11 @@ fn the_kart_drives_on_the_stage_and_stops_at_its_wall() {
         eprintln!("joint {joint}: {:.1} units from where it was at rest", moved);
         assert!(moved < 6.0, "joint {joint} with the body while it drives: {moved} units off");
     }
-    let start = track[200];
+    let start = track[10];
+    let first_move = track.iter().position(|p| (*p - start).length() > m(0.05));
+    eprintln!("first moves at frame {first_move:?} (input from frame 21)");
+    // (moving before the countdown would have ended, four seconds in)
+    assert!(track[200].x > start.x + m(1.0), "it drives at once, without the countdown: {}", track[200]);
     let end = *track.last().unwrap();
     eprintln!("kart: from {start} to {end}; at frame 600 {}", track[600]);
     assert!(start.y.abs() < m(0.2) && start.x.abs() < m(0.5) && start.z.abs() < m(0.5), "put down where it was asked, on the floor: {start}");

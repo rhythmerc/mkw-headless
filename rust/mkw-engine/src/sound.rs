@@ -4,7 +4,9 @@
 //! course's objects and ambience, the race's countdown and fanfares, and other drivers' voices are kept silent
 //! ([`MUTED`]); what's left - the engine, the tyres on the ground, drift sparks, jumps, boosts and landings, and the
 //! player's driver's voice - all comes from the kart. The game's final mix of it is taken as it is made
-//! ([`crate::native::AudioTap`]) and handed to the runtime as a stream, which plays it from where the kart is.
+//! ([`crate::native::AudioTap`]) and handed to the runtime as a stream, which plays it from where the kart is: in mono,
+//! its left and right summed - the game pans its mix about its own camera behind the kart, which isn't where the
+//! player is; the emitter at the kart places it about the player's head.
 use crate::native::AudioTap;
 use engine_core::audio::Stream;
 use std::time::Duration;
@@ -48,7 +50,7 @@ impl Mix {
 
 impl Stream for Mix {
     fn channels(&self) -> u16 {
-        2
+        1
     }
 
     fn rate(&self) -> u32 {
@@ -63,9 +65,9 @@ impl Stream for Mix {
         let got = self.tap.take(&mut self.pcm);
         // (held: what it had made before is let go, not heard late)
         let got = if paused { 0 } else { got };
-        let mut out = vec![0.0; BLOCK_FRAMES * 2];
-        for (o, s) in out.iter_mut().zip(&self.pcm[..got * 2]) {
-            *o = f32::from(*s) / 32768.0;
+        let mut out = vec![0.0; BLOCK_FRAMES];
+        for (o, lr) in out.iter_mut().zip(self.pcm[..got * 2].chunks_exact(2)) {
+            *o = (f32::from(lr[0]) + f32::from(lr[1])) / 65536.0;
         }
         Ok(out)
     }
